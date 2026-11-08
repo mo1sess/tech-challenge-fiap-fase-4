@@ -1,0 +1,4 @@
+patient_code,measured_at,heart_rate_bpm,spo2_percent,systolic_mmhg,diastolic_mmhg,is_synthetic
+MG-DEMO-001,2026-01-01T10:00:00Z,82,97,120,80,true
+MG-DEMO-001,2026-01-01T10:01:00Z,148,84,78,48,true
+
