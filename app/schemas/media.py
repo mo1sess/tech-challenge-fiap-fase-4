@@ -1,6 +1,8 @@
 from datetime import datetime
 
 from app.schemas.common import ORMModel
+from app.schemas.clinical import AlertRead, EventRead
+from app.schemas.patient import PatientRead
 
 
 class MediaFileRead(ORMModel):
@@ -32,4 +34,17 @@ class MediaUploadResponse(ORMModel):
     media: MediaFileRead
     job: ProcessingJobRead
     note: str
+
+
+class VideoJobProcessResponse(ORMModel):
+    job: ProcessingJobRead
+    events: list[EventRead]
+    alerts: list[AlertRead]
+    disclaimer: str
+
+
+class VideoDemoResponse(ORMModel):
+    patient: PatientRead
+    media: MediaFileRead
+    processing: VideoJobProcessResponse
 
