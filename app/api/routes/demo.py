@@ -68,6 +68,7 @@ def run_video_alert_demo(request: Request, db: Session = Depends(get_db)) -> Vid
         db.commit()
         db.refresh(patient)
 
+    request.app.state.settings.storage_dir.mkdir(parents=True, exist_ok=True)
     destination = request.app.state.settings.storage_dir / f"video_demo_{uuid.uuid4().hex}.avi"
     create_synthetic_low_motion_video(destination)
     content = destination.read_bytes()
