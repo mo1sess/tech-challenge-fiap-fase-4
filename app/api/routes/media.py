@@ -6,10 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.db.models import MediaFile, MediaKind, Patient, ProcessingJob
+from app.db.models import JobStatus, MediaFile, MediaKind, Patient, ProcessingJob
 from app.modules.audio.processor import describe_pipeline as describe_audio_pipeline
+from app.modules.video.processor import DISCLAIMER as VIDEO_DISCLAIMER
+from app.modules.video.processor import VideoProcessingError
 from app.modules.video.processor import describe_pipeline as describe_video_pipeline
-from app.schemas.media import MediaFileRead, MediaUploadResponse, ProcessingJobRead
+from app.schemas.media import MediaFileRead, MediaUploadResponse, ProcessingJobRead, VideoJobProcessResponse
+from app.services.video_flow import process_video_job
 
 
 router = APIRouter(tags=["media and jobs"])
@@ -99,7 +102,11 @@ async def upload_media(
     return MediaUploadResponse(
         media=media,
         job=job,
-        note="Arquivo sintetico registrado. O job permanece na fila ate a implementacao do processador da proxima etapa.",
+        note=(
+            "Video sintetico registrado. Execute o endpoint de processamento do job para analisar movimento."
+            if resolved_kind == MediaKind.VIDEO.value
+            else "Audio sintetico registrado. A analise de audio sera implementada na Etapa 3."
+        ),
     )
 
 
@@ -133,4 +140,30 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> ProcessingJob:
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+@router.post("/jobs/{job_id}/process", response_model=VideoJobProcessResponse)
+def process_job(job_id: str, request: Request, db: Session = Depends(get_db)) -> VideoJobProcessResponse:
+    job = db.get(ProcessingJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.job_type != "video_analysis":
+        raise HTTPException(status_code=422, detail="Only video analysis jobs are available in Etapa 2")
+    if job.status in {JobStatus.PROCESSING.value, JobStatus.COMPLETED.value}:
+        raise HTTPException(status_code=409, detail=f"Job is already {job.status}")
+
+    media = db.get(MediaFile, job.media_file_id)
+    patient = db.get(Patient, job.patient_id)
+    if media is None or patient is None:
+        raise HTTPException(status_code=409, detail="Job dependencies were not found")
+    try:
+        processed_job, events, alerts = process_video_job(db, job, media, patient, request.app.state.settings)
+    except (VideoProcessingError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return VideoJobProcessResponse(
+        job=processed_job,
+        events=events,
+        alerts=alerts,
+        disclaimer=VIDEO_DISCLAIMER,
+    )
 
