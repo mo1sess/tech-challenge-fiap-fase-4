@@ -5,6 +5,7 @@ __pycache__/
 htmlcov/
 .venv/
 .venv-test/
+work/
 .testdeps*/
 .pytest-tmp*/
 .env

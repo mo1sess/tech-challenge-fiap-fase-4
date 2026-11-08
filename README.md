@@ -1,10 +1,10 @@
 # MedGuard AI
 
-Fundação executável do Tech Challenge FIAP - Fase 4. O projeto implementa uma API modular em FastAPI, persistência PostgreSQL, dashboard Streamlit e um primeiro fluxo ponta a ponta de sinais vitais sintéticos, eventos e alertas.
+Implementação das Etapas 1 e 2 do Tech Challenge FIAP - Fase 4. O projeto oferece uma API modular em FastAPI, persistência PostgreSQL, dashboard Streamlit e fluxos ponta a ponta de sinais vitais e análise de movimento em vídeos sintéticos.
 
 > **Uso exclusivamente educacional.** O projeto aceita somente dados fictícios ou sintéticos, não é um dispositivo médico, não oferece diagnóstico e não deve apoiar decisões clínicas reais. Os limites usados no detector são exemplos de software, não referências clínicas universais.
 
-## O que esta etapa entrega
+## O que a Etapa 2 entrega
 
 - API REST FastAPI com Swagger em `http://localhost:8000/docs`.
 - PostgreSQL e ambiente completo via Docker Compose.
@@ -12,7 +12,12 @@ Fundação executável do Tech Challenge FIAP - Fase 4. O projeto implementa uma
 - Modelos persistentes para pacientes fictícios, mídia, jobs, medições, prescrições, eventos e alertas.
 - Upload controlado de áudio e vídeo fictícios, com hash SHA-256 e job rastreável.
 - Primeiro fluxo demonstrável: medição sintética → regras ilustrativas → evento → alerta.
-- Módulos de vídeo e áudio preparados, mas explicitamente ainda não executados.
+- Processamento real de vídeo com OpenCV, extração de metadados e amostragem de quadros.
+- Métricas determinísticas de movimento por diferença entre quadros, sem identificação de pessoas.
+- Detecção demonstrativa de baixa variação ou mudança visual abrupta → evento → alerta.
+- Job de vídeo rastreável nos estados `queued`, `processing`, `completed` e `failed`.
+- Vídeo geométrico sintético gerado por código para uma demonstração reproduzível.
+- Módulo de áudio preparado, mas explicitamente ainda não executado.
 - Variáveis Azure reservadas para as próximas etapas.
 - Testes básicos da API, proteção contra dados não sintéticos, alertas e upload.
 
@@ -26,7 +31,8 @@ flowchart LR
     API --> VITAL[Regras sintéticas de sinais vitais]
     VITAL --> EVENT[Evento clínico normalizado]
     EVENT --> ALERT[Alerta persistido]
-    API -. próximas etapas .-> VIDEO[OpenCV + pose + YOLOv8]
+    API --> VIDEO[OpenCV + análise de movimento]
+    VIDEO --> EVENT
     API -. próximas etapas .-> AUDIO[Azure Speech + Language + análise acústica]
 ```
 
@@ -40,9 +46,9 @@ app/
   core/              configuração
   db/                modelos SQLAlchemy
   modules/audio/     contrato inicial do pipeline de áudio
-  modules/video/     contrato inicial do pipeline de vídeo
+  modules/video/     leitura de quadros e análise de movimento com OpenCV
   schemas/           validação e contratos da API
-  services/          fluxo clínico sintético e regras de anomalia
+  services/          fluxos de sinais vitais e vídeo até eventos/alertas
 dashboard/           interface Streamlit
 samples/             dados sintéticos de exemplo
 storage/uploads/     mídia local ignorada pelo Git
@@ -87,7 +93,26 @@ Pré-requisitos: Docker Desktop e Docker Compose.
 
 Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apaga os dados locais do projeto.
 
-## Demonstração em menos de um minuto
+## Demonstrações em menos de um minuto
+
+### Vídeo — Etapa 2
+
+No dashboard, abra **Análise de vídeo** e clique em **Executar demonstração de vídeo sintético**. A aplicação:
+
+1. cria um paciente fictício específico da demonstração;
+2. gera um arquivo AVI com formas geométricas e a marca `SYNTHETIC`;
+3. registra a mídia e o job;
+4. decodifica e amostra quadros com OpenCV;
+5. calcula a porcentagem de pixels alterados entre quadros;
+6. persiste o evento e o alerta produzidos pelas regras educacionais.
+
+O mesmo fluxo pode ser executado pela API:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/demo/video-alert
+```
+
+### Sinais vitais — Etapa 1
 
 No dashboard, abra **Visão geral** e clique em **Executar demonstração de alerta**. A aplicação:
 
@@ -123,9 +148,11 @@ curl http://localhost:8000/api/v1/alerts
 | `POST` | `/api/v1/patients/{id}/media` | Enviar áudio ou vídeo fictício |
 | `GET` | `/api/v1/media` | Consultar mídias |
 | `GET` | `/api/v1/jobs` | Consultar jobs |
+| `POST` | `/api/v1/jobs/{id}/process` | Processar um job de vídeo pendente |
 | `GET` | `/api/v1/events` | Consultar eventos normalizados |
 | `GET/PATCH` | `/api/v1/alerts` e `/api/v1/alerts/{id}` | Consultar e atualizar alertas |
 | `POST` | `/api/v1/demo/vital-alert` | Executar fluxo demonstrável |
+| `POST` | `/api/v1/demo/video-alert` | Gerar e analisar vídeo geométrico sintético |
 
 ## Upload de mídia nesta etapa
 
@@ -134,7 +161,16 @@ Formatos aceitos:
 - Áudio: `.wav`, `.mp3`, `.m4a`, `.ogg`.
 - Vídeo: `.mp4`, `.mov`, `.avi`, `.mkv`.
 
-O upload salva o arquivo, calcula o hash, cria `media_files` e registra um `processing_job` com status `queued`. O resultado do job descreve o pipeline futuro como `prepared_not_executed`. Isso evita simular resultados de IA que ainda não foram implementados.
+O upload salva o arquivo, calcula o hash, cria `media_files` e registra um `processing_job` com status `queued`. Jobs de vídeo são processados por `POST /api/v1/jobs/{id}/process`; jobs de áudio permanecem na fila até a Etapa 3.
+
+### Como a análise funciona
+
+O processador reduz cada quadro amostrado para uma matriz em tons de cinza e mede a proporção de pixels cuja intensidade mudou. Duas regras configuráveis criam eventos demonstrativos:
+
+- movimento médio abaixo de `VIDEO_LOW_MOTION_THRESHOLD`;
+- pico de mudança acima de `VIDEO_ABRUPT_MOTION_THRESHOLD`.
+
+Esses indicadores não representam postura, dor, queda, condição clínica nem identidade. São métricas visuais genéricas para comprovar o pipeline de software com dados sintéticos. MediaPipe/YOLO podem ser adicionados posteriormente como analisadores opcionais, mantendo o mesmo contrato de eventos.
 
 ## Testes
 
@@ -153,6 +189,7 @@ pytest
 ```
 
 Os testes usam SQLite temporário para permanecerem rápidos e isolados; a execução da aplicação usa PostgreSQL por padrão no Docker Compose.
+O workflow `.github/workflows/ci.yml` repete essa validação automaticamente em cada push ou pull request para `main` usando Python 3.12.
 
 ## Variáveis de ambiente
 
@@ -160,20 +197,20 @@ Consulte `.env.example`. As credenciais Azure estão vazias e reservadas para a 
 
 ## Correspondência com o Tech Challenge
 
-| Requisito final | Estado após a Etapa 1 |
+| Requisito final | Estado após a Etapa 2 |
 |---|---|
-| Vídeo clínico e eventos fora do padrão | Estrutura, upload e job preparados; implementação na Etapa 2 |
+| Vídeo clínico e eventos fora do padrão | Pipeline OpenCV, métricas de movimento, eventos e alertas demonstrativos implementados com vídeo sintético |
 | Áudio, transcrição e análise textual Azure | Estrutura, upload e configuração preparados; implementação na Etapa 3 |
 | Anomalias em sinais vitais | Primeiro fluxo por regras sintéticas implementado; modelos temporais na Etapa 4 |
 | Prescrições e movimentação | Persistência inicial de prescrições; detectores na Etapa 4 |
-| Alertas automáticos | Evento e alerta persistidos no fluxo de sinais vitais |
+| Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais e vídeo |
 | Fusão multimodal | Modelo de eventos normalizado preparado; correlação na Etapa 5 |
 | Relatório e vídeo final | Planejados para a Etapa 8 |
 
 ## Próximas etapas
 
-1. Implementar vídeo de fisioterapia com extração de frames, pose e relatório de desvios.
-2. Implementar áudio com Azure Speech, Azure AI Language e características acústicas.
+1. Implementar áudio com Azure Speech, Azure AI Language e características acústicas.
+2. Evoluir o analisador de vídeo com pose opcional e validação sobre material inteiramente sintético.
 3. Evoluir sinais vitais para séries temporais e adicionar anomalias de prescrições e movimentação.
 4. Correlacionar eventos multimodais, aprimorar alertas, métricas e validação.
 

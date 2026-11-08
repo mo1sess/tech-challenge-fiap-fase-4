@@ -4,12 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "medguard-ai"
-version = "0.1.0"
-description = "Fundacao do Tech Challenge FIAP Fase 4 para monitoramento multimodal com dados sinteticos."
+version = "0.2.0"
+description = "MedGuard AI para monitoramento multimodal educacional com dados sinteticos."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
+  "numpy>=2.0,<3",
+  "opencv-python-headless>=4.10,<5",
   "pydantic-settings>=2.5,<3",
   "psycopg[binary]>=3.2,<4",
   "python-multipart>=0.0.9,<1",
