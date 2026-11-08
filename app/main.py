@@ -37,9 +37,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version="0.2.0",
         description=(
-            "Fundacao do MedGuard AI para o Tech Challenge FIAP Fase 4. "
+            "MedGuard AI para o Tech Challenge FIAP Fase 4, com analise educacional de video. "
             "Aceita somente dados sinteticos/ficticios e nao realiza diagnosticos."
         ),
         lifespan=lifespan,
