@@ -27,14 +27,14 @@ def load_patients() -> list[dict[str, Any]]:
 
 
 st.title("🛡️ MedGuard AI")
-st.caption("Tech Challenge FIAP - Fase 4 | Etapa 1: fundacao e fluxo sintetico de alertas")
+st.caption("Tech Challenge FIAP - Fase 4 | Etapa 2: analise educacional de video sintetico")
 st.warning(
     "Ambiente educacional. Use apenas pacientes, midias e medicoes ficticias. "
     "Os limites da demonstracao nao sao referencia clinica e o sistema nao realiza diagnosticos."
 )
 
-overview_tab, patients_tab, vitals_tab, media_tab = st.tabs(
-    ["Visao geral", "Pacientes ficticios", "Sinais vitais", "Midia e jobs"]
+overview_tab, patients_tab, vitals_tab, video_tab, media_tab = st.tabs(
+    ["Visao geral", "Pacientes ficticios", "Sinais vitais", "Analise de video", "Midia e jobs"]
 )
 
 with overview_tab:
@@ -124,7 +124,7 @@ with vitals_tab:
 
 with media_tab:
     st.subheader("Registrar audio ou video ficticio")
-    st.info("Nesta etapa, o upload cria a midia e o job. O processamento analitico sera implementado nas Etapas 2 e 3.")
+    st.info("Videos podem ser processados nesta etapa. O audio permanece preparado para a Etapa 3.")
     patients = load_patients()
     if not patients:
         st.info("Cadastre um paciente ficticio antes de enviar midia.")
@@ -142,6 +142,8 @@ with media_tab:
                 )
                 if result:
                     st.success("Midia e job registrados.")
+                    if result["media"]["kind"] == "video":
+                        st.session_state["last_video_job_id"] = result["job"]["id"]
                     st.json(result)
 
     jobs = api_request("GET", "/jobs?limit=20") or []
@@ -150,4 +152,39 @@ with media_tab:
         st.dataframe(jobs, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhum job registrado.")
+
+with video_tab:
+    st.subheader("Fluxo demonstravel de video")
+    st.write("Video geometrico sintetico → OpenCV → metricas de movimento → evento → alerta")
+    st.caption("A analise mede mudancas entre quadros e nao identifica pessoas nem produz diagnostico.")
+
+    if st.button("Executar demonstracao de video sintetico", type="primary", use_container_width=True):
+        result = api_request("POST", "/demo/video-alert")
+        if result:
+            analysis = result["processing"]["job"]["result"]["analysis"]
+            st.success("Video sintetico criado, processado e persistido.")
+            cols = st.columns(4)
+            cols[0].metric("Quadros analisados", analysis["analyzed_frame_count"])
+            cols[1].metric("Movimento medio", f"{analysis['mean_motion_percent']:.3f}%")
+            cols[2].metric("Eventos", len(result["processing"]["events"]))
+            cols[3].metric("Alertas", len(result["processing"]["alerts"]))
+            st.json(result)
+
+    last_job_id = st.session_state.get("last_video_job_id")
+    if last_job_id:
+        st.divider()
+        st.write(f"Ultimo job de video enviado: `{last_job_id}`")
+        if st.button("Processar ultimo video enviado", use_container_width=True):
+            result = api_request("POST", f"/jobs/{last_job_id}/process")
+            if result:
+                st.success("Analise concluida.")
+                st.json(result)
+
+    video_events = api_request("GET", "/events?limit=50") or []
+    video_events = [item for item in video_events if item.get("source") == "video_analysis"]
+    st.subheader("Eventos recentes de video")
+    if video_events:
+        st.dataframe(video_events, use_container_width=True, hide_index=True)
+    else:
+        st.info("Ainda nao ha eventos de video. Execute a demonstracao ou envie um video ficticio.")
 
