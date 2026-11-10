@@ -9,6 +9,7 @@ from app.db.models import (Alert, ClinicalEvent, JobStatus, MediaFile, Patient,
 from app.modules.audio.acoustic import AcousticAnalysisError, analyze_acoustics
 from app.modules.audio.azure_speech import (AudioTranscriptionError,
                                             transcribe_wav)
+from app.modules.audio.text_analysis import analyze_text
 
 AUDIO_DISCLAIMER = (
     "Resultado educacional de transcricao de audio sintetico. "
@@ -40,6 +41,10 @@ def process_audio_job(
             settings,
         )
 
+        text_analysis = analyze_text(
+    str(transcription.get("text", ""))
+)
+
         acoustic = analyze_acoustics(
             Path(media.storage_path)
                 )
@@ -47,15 +52,15 @@ def process_audio_job(
         job.status = JobStatus.COMPLETED.value
         job.progress = 100.0
         job.result = {
-            "analysis": {
-                "transcription": transcription,
-                "acoustic": acoustic.to_dict(),
-                "disclaimer": AUDIO_DISCLAIMER,
-            },
-            "event_ids": [],
-            "alert_ids": [],
-        }
-
+    "analysis": {
+        "transcription": transcription,
+        "acoustic": acoustic.to_dict(),
+        "text_analysis": text_analysis.to_dict(),
+        "disclaimer": AUDIO_DISCLAIMER,
+    },
+    "event_ids": [],
+    "alert_ids": [],
+}
         db.commit()
         db.refresh(job)
 
