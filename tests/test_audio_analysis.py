@@ -1,8 +1,25 @@
 
+import io
+import wave
+
 import pytest
 from httpx import AsyncClient
 
 pytestmark = pytest.mark.anyio
+
+
+def create_synthetic_wav() -> bytes:
+    buffer = io.BytesIO()
+
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+
+        # One second of synthetic silence in 16-bit PCM
+        wav.writeframes(b"\x00\x00" * 16000)
+
+    return buffer.getvalue()
 
 
 async def test_audio_job_transcribes_and_persists_result(
@@ -25,13 +42,13 @@ async def test_audio_job_transcribes_and_persists_result(
 
     uploaded = await client.post(
         f"/api/v1/patients/{patient['id']}/media",
-        files={
-            "file": (
-                "synthetic.wav",
-                b"RIFF" + b"\x00" * 64,
-                "audio/wav",
-            )
-        },
+      files={
+    "file": (
+        "synthetic.wav",
+        create_synthetic_wav(),
+        "audio/wav",
+    )
+},
         data={"is_synthetic": "true"},
     )
 

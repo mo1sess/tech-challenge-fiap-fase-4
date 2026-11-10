@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.db.models import (Alert, ClinicalEvent, JobStatus, MediaFile, Patient,
                            ProcessingJob)
+from app.modules.audio.acoustic import AcousticAnalysisError, analyze_acoustics
 from app.modules.audio.azure_speech import (AudioTranscriptionError,
                                             transcribe_wav)
 
@@ -39,11 +40,16 @@ def process_audio_job(
             settings,
         )
 
+        acoustic = analyze_acoustics(
+            Path(media.storage_path)
+                )
+
         job.status = JobStatus.COMPLETED.value
         job.progress = 100.0
         job.result = {
             "analysis": {
                 "transcription": transcription,
+                "acoustic": acoustic.to_dict(),
                 "disclaimer": AUDIO_DISCLAIMER,
             },
             "event_ids": [],
@@ -55,7 +61,7 @@ def process_audio_job(
 
         return job, [], []
 
-    except (AudioTranscriptionError, OSError, ValueError) as exc:
+    except (AudioTranscriptionError, AcousticAnalysisError, OSError, ValueError) as exc:
         db.rollback()
 
         persisted_job = db.get(ProcessingJob, job.id)
