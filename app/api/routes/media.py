@@ -1,19 +1,26 @@
 import hashlib
 from pathlib import Path
+from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
+                     Request, UploadFile)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.db.models import JobStatus, MediaFile, MediaKind, Patient, ProcessingJob
-from app.modules.audio.processor import describe_pipeline as describe_audio_pipeline
+from app.db.models import (JobStatus, MediaFile, MediaKind, Patient,
+                           ProcessingJob)
+from app.modules.audio.azure_speech import AudioTranscriptionError
+from app.modules.audio.processor import \
+    describe_pipeline as describe_audio_pipeline
 from app.modules.video.processor import DISCLAIMER as VIDEO_DISCLAIMER
 from app.modules.video.processor import VideoProcessingError
-from app.modules.video.processor import describe_pipeline as describe_video_pipeline
-from app.schemas.media import MediaFileRead, MediaUploadResponse, ProcessingJobRead, VideoJobProcessResponse
+from app.modules.video.processor import \
+    describe_pipeline as describe_video_pipeline
+from app.schemas.media import (MediaFileRead, MediaUploadResponse,
+                               ProcessingJobRead, VideoJobProcessResponse)
+from app.services.audio_flow import AUDIO_DISCLAIMER, process_audio_job
 from app.services.video_flow import process_video_job
-
 
 router = APIRouter(tags=["media and jobs"])
 
@@ -47,7 +54,7 @@ async def upload_media(
     patient_id: str,
     request: Request,
     file: UploadFile = File(...),
-    kind: str | None = Form(default=None),
+    kind: Literal["audio", "video"] | None = Form(default=None),
     is_synthetic: bool = Form(default=True),
     db: Session = Depends(get_db),
 ) -> MediaUploadResponse:
@@ -105,7 +112,7 @@ async def upload_media(
         note=(
             "Video sintetico registrado. Execute o endpoint de processamento do job para analisar movimento."
             if resolved_kind == MediaKind.VIDEO.value
-            else "Audio sintetico registrado. A analise de audio sera implementada na Etapa 3."
+            else "Audio sintetico registrado. Execute o processamento do job para transcricao WAV."
         ),
     )
 
@@ -142,28 +149,72 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> ProcessingJob:
     return job
 
 
-@router.post("/jobs/{job_id}/process", response_model=VideoJobProcessResponse)
-def process_job(job_id: str, request: Request, db: Session = Depends(get_db)) -> VideoJobProcessResponse:
+
+@router.post(
+    "/jobs/{job_id}/process",
+    response_model=VideoJobProcessResponse,
+)
+def process_job(
+    job_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> VideoJobProcessResponse:
     job = db.get(ProcessingJob, job_id)
+
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job.job_type != "video_analysis":
-        raise HTTPException(status_code=422, detail="Only video analysis jobs are available in Etapa 2")
-    if job.status in {JobStatus.PROCESSING.value, JobStatus.COMPLETED.value}:
-        raise HTTPException(status_code=409, detail=f"Job is already {job.status}")
+
+    if job.job_type not in {"audio_analysis", "video_analysis"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Unsupported processing job type",
+        )
+
+    if job.status in {
+        JobStatus.PROCESSING.value,
+        JobStatus.COMPLETED.value,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is already {job.status}",
+        )
 
     media = db.get(MediaFile, job.media_file_id)
     patient = db.get(Patient, job.patient_id)
+
     if media is None or patient is None:
-        raise HTTPException(status_code=409, detail="Job dependencies were not found")
+        raise HTTPException(
+            status_code=409,
+            detail="Job dependencies were not found",
+        )
+
     try:
-        processed_job, events, alerts = process_video_job(db, job, media, patient, request.app.state.settings)
-    except (VideoProcessingError, OSError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if job.job_type == "audio_analysis":
+            processed_job, events, alerts = process_audio_job(
+                db, job, media, patient, request.app.state.settings
+            )
+            disclaimer = AUDIO_DISCLAIMER
+
+        else:
+            processed_job, events, alerts = process_video_job(
+                db, job, media, patient, request.app.state.settings
+            )
+            disclaimer = VIDEO_DISCLAIMER
+
+    except (
+        AudioTranscriptionError,
+        VideoProcessingError,
+        OSError,
+        ValueError,
+    ) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
     return VideoJobProcessResponse(
         job=processed_job,
         events=events,
         alerts=alerts,
-        disclaimer=VIDEO_DISCLAIMER,
+        disclaimer=disclaimer,
     )
-

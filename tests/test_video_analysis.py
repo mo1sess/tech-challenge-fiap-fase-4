@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from httpx import AsyncClient
 
-from app.modules.video.processor import VideoAnalysis, create_synthetic_low_motion_video
-
+from app.modules.video.processor import (VideoAnalysis,
+                                         create_synthetic_low_motion_video)
 
 pytestmark = pytest.mark.anyio
 
@@ -59,15 +59,7 @@ async def test_video_demo_is_end_to_end(client: AsyncClient, monkeypatch: pytest
     assert body["processing"]["alerts"]
 
 
-async def test_audio_job_cannot_be_processed_in_video_stage(client: AsyncClient, patient: dict) -> None:
-    uploaded = await client.post(
-        f"/api/v1/patients/{patient['id']}/media",
-        files={"file": ("synthetic.wav", b"RIFF" + b"\x00" * 64, "audio/wav")},
-        data={"is_synthetic": "true"},
-    )
-    job_id = uploaded.json()["job"]["id"]
-    response = await client.post(f"/api/v1/jobs/{job_id}/process")
-    assert response.status_code == 422
+
 
 
 async def test_completed_video_job_is_not_processed_twice(
