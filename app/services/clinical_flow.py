@@ -2,7 +2,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Alert, ClinicalEvent, ClinicalMeasurement, Patient, utcnow
 from app.schemas.clinical import MeasurementCreate
-from app.services.vital_signs import DISCLAIMER, evaluate_vital_signs, highest_severity
+from app.services.temporal_analysis import evaluate_recent_trends
+from app.services.vital_signs import DISCLAIMER, SEVERITY_RANK, evaluate_vital_signs, highest_severity
 
 
 def ingest_synthetic_measurement(
@@ -61,6 +62,43 @@ def ingest_synthetic_measurement(
         db.add(alert)
         events.append(event)
         alerts.append(alert)
+
+    trend_detections = evaluate_recent_trends(db, patient.id)
+    if trend_detections:
+        trend_severity = max(
+            (item.severity for item in trend_detections),
+            key=SEVERITY_RANK.__getitem__,
+        )
+        trend_event = ClinicalEvent(
+            patient_id=patient.id,
+            measurement_id=measurement.id,
+            source="vital_trends",
+            event_type="synthetic_vital_trend_anomaly",
+            severity=trend_severity.value,
+            title="Tendencia demonstrativa em sinais vitais",
+            description=(
+                "A janela recente de medicoes sinteticas correspondeu "
+                "a uma regra temporal configurada."
+            ),
+            payload={
+                "window_size": 4,
+                "detections": [item.to_dict() for item in trend_detections],
+                "requires_human_review": True,
+                "disclaimer": DISCLAIMER,
+            },
+            occurred_at=measurement.measured_at,
+        )
+        db.add(trend_event)
+        db.flush()
+        trend_alert = Alert(
+            event_id=trend_event.id,
+            patient_id=patient.id,
+            severity=trend_severity.value,
+            message=f"Revisar tendencia sintetica de sinais vitais. {DISCLAIMER}",
+        )
+        db.add(trend_alert)
+        events.append(trend_event)
+        alerts.append(trend_alert)
 
     db.commit()
     db.refresh(measurement)

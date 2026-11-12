@@ -1,10 +1,10 @@
 # MedGuard AI
 
-Implementação das Etapas 1, 2 e 3 do Tech Challenge FIAP - Fase 4. O projeto oferece uma API modular em FastAPI, persistência PostgreSQL, dashboard Streamlit e fluxos ponta a ponta de sinais vitais, vídeo e áudio sintéticos.
+Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto oferece uma API modular em FastAPI, persistência PostgreSQL, dashboard Streamlit e fluxos ponta a ponta de sinais vitais, vídeo, áudio, prescrições e movimentações sintéticas.
 
 > **Uso exclusivamente educacional.** O projeto aceita somente dados fictícios ou sintéticos, não é um dispositivo médico, não oferece diagnóstico e não deve apoiar decisões clínicas reais. Os limites usados no detector são exemplos de software, não referências clínicas universais.
 
-## O que as Etapas 1–3 entregam
+## O que as Etapas 1–4 entregam
 
 - API REST FastAPI com Swagger em `http://localhost:8000/docs`.
 - PostgreSQL e ambiente completo via Docker Compose.
@@ -22,6 +22,10 @@ Implementação das Etapas 1, 2 e 3 do Tech Challenge FIAP - Fase 4. O projeto o
 - Análise textual determinística com tratamento de negação, contexto histórico e terceiros.
 - Eventos de revisão humana para achados afirmativos, sem alerta ou diagnóstico automático.
 - Correlação temporal preliminar entre eventos sintéticos de áudio e sinais vitais.
+- Análise temporal das quatro medições sintéticas mais recentes, com regras transparentes para tendências de frequência cardíaca, SpO2 e pressão sistólica.
+- Verificação demonstrativa da sequência de prescrições fictícias, incluindo início duplicado e alteração ou encerramento sem registro ativo.
+- Verificação demonstrativa da continuidade de movimentações fictícias, incluindo origem/destino iguais, quebra de continuidade e transferências muito próximas.
+- Eventos e alertas rastreáveis para anomalias temporais e operacionais, sempre sujeitos a revisão humana.
 - Testes básicos da API, proteção contra dados não sintéticos, alertas e upload.
 
 ## Arquitetura
@@ -38,6 +42,10 @@ flowchart LR
     VIDEO --> EVENT
     API --> AUDIO[Azure Speech + análise acústica e textual]
     AUDIO --> EVENT
+    API --> TEMPORAL[Regras temporais sintéticas]
+    API --> OPERATIONS[Prescrições e movimentações fictícias]
+    TEMPORAL --> EVENT
+    OPERATIONS --> EVENT
 ```
 
 O desenho é um monólito modular: fácil de executar agora e com limites claros para substituir cada processador por implementação assíncrona nas etapas seguintes.
@@ -52,7 +60,7 @@ app/
   modules/audio/     Azure Speech, análise acústica e regras textuais
   modules/video/     leitura de quadros e análise de movimento com OpenCV
   schemas/           validação e contratos da API
-  services/          fluxos de sinais vitais e vídeo até eventos/alertas
+  services/          fluxos multimodais, temporais e operacionais até eventos/alertas
 dashboard/           interface Streamlit
 samples/             dados sintéticos de exemplo
 storage/uploads/     mídia local ignorada pelo Git
@@ -98,6 +106,20 @@ Pré-requisitos: Docker Desktop e Docker Compose.
 Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apaga os dados locais do projeto.
 
 ## Demonstrações em menos de um minuto
+
+### Séries temporais e operações — Etapa 4
+
+Na aba **Prescrições e movimentações**, selecione um paciente fictício e registre sequências deliberadamente inconsistentes. Para demonstrar uma tendência de sinais vitais, use a aba **Sinais vitais** e registre quatro medições sintéticas com valores crescentes de frequência cardíaca, por exemplo `70`, `82`, `94` e `106` bpm.
+
+A aplicação:
+
+1. analisa uma janela recente de quatro medições sintéticas;
+2. registra eventos para tendências configuradas e transparentes;
+3. compara cada ação de prescrição fictícia com o último estado do mesmo código;
+4. compara cada movimentação fictícia com o destino anterior;
+5. cria alertas demonstrativos e mantém no evento os motivos que exigem revisão humana.
+
+As regras comprovam o fluxo de software e não representam limites clínicos, validação farmacológica ou rastreamento real.
 
 ### Áudio — Etapa 3
 
@@ -161,6 +183,8 @@ curl http://localhost:8000/api/v1/alerts
 | `POST` | `/api/v1/patients/{id}/measurements` | Registrar e avaliar medição sintética |
 | `GET` | `/api/v1/patients/{id}/measurements` | Consultar medições |
 | `POST/GET` | `/api/v1/patients/{id}/prescriptions` | Registrar/listar prescrição fictícia |
+| `POST` | `/api/v1/patients/{id}/prescriptions/evaluate` | Registrar e avaliar sequência de prescrição fictícia |
+| `POST/GET` | `/api/v1/patients/{id}/movements` | Registrar, avaliar e listar movimentações fictícias |
 | `POST` | `/api/v1/patients/{id}/media` | Enviar áudio ou vídeo fictício |
 | `GET` | `/api/v1/media` | Consultar mídias |
 | `GET` | `/api/v1/jobs` | Consultar jobs |
@@ -218,19 +242,19 @@ Consulte `.env.example`. Para processar áudio fora dos testes, configure localm
 
 ## Correspondência com o Tech Challenge
 
-| Requisito final | Estado após a Etapa 3 |
+| Requisito final | Estado após a Etapa 4 |
 |---|---|
 | Vídeo clínico e eventos fora do padrão | Pipeline OpenCV, métricas de movimento, eventos e alertas demonstrativos implementados com vídeo sintético |
 | Áudio, transcrição e análise textual | Azure Speech, métricas acústicas e análise textual determinística implementados para WAV sintético |
-| Anomalias em sinais vitais | Primeiro fluxo por regras sintéticas implementado; modelos temporais na Etapa 4 |
-| Prescrições e movimentação | Persistência inicial de prescrições; detectores na Etapa 4 |
-| Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais e vídeo |
+| Anomalias em sinais vitais | Regras pontuais e análise temporal transparente sobre janelas de medições sintéticas |
+| Prescrições e movimentação | Detectores demonstrativos de sequência e continuidade implementados com dados fictícios |
+| Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais, vídeo, prescrições e movimentações |
 | Fusão multimodal | Correlação temporal preliminar implementada; evolução e validação continuam nas próximas etapas |
 | Relatório e vídeo final | Planejados para a Etapa 8 |
 
 ## Próximas etapas
 
-1. Evoluir sinais vitais para séries temporais e adicionar anomalias de prescrições e movimentação.
-2. Evoluir o analisador de vídeo com pose opcional e validação sobre material inteiramente sintético.
-3. Ampliar a correlação multimodal, aprimorar alertas, métricas e validação.
+1. Evoluir o analisador de vídeo com pose opcional e validação sobre material inteiramente sintético.
+2. Ampliar a correlação multimodal e consolidar eventos relacionados em uma linha do tempo.
+3. Aprimorar alertas, métricas de qualidade, observabilidade e validação para a entrega final.
 
