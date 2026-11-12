@@ -113,8 +113,8 @@ def analyze_text(text: str) -> TextAnalysis:
     matched_expressions = []
     seen = set()
 
-    sentences = re.split(r"[.!?;\n]+", text)
-
+    sentences = re.split(r"[.!?;,\n]+", text)
+    
     for raw_sentence in sentences:
         sentence = normalize_text(raw_sentence)
 
