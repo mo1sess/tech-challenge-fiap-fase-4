@@ -25,7 +25,7 @@ from app.services.video_flow import process_video_job
 router = APIRouter(tags=["media and jobs"])
 
 ALLOWED_EXTENSIONS = {
-    MediaKind.AUDIO.value: {".wav", ".mp3", ".m4a", ".ogg"},
+    MediaKind.AUDIO.value: {".wav"},
     MediaKind.VIDEO.value: {".mp4", ".mov", ".avi", ".mkv"},
 }
 

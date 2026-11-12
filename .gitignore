@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .coverage
 htmlcov/
@@ -11,5 +12,9 @@ work/
 .env
 storage/uploads/*
 !storage/uploads/.gitkeep
+storage/*.wav
+storage/*.mp3
+storage/*.m4a
+storage/*.ogg
 *.db
 
