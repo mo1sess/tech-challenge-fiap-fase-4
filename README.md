@@ -1,4 +1,4 @@
-# MedGuard AI
+﻿# MedGuard AI
 
 Plataforma educacional de monitoramento multimodal para o **Tech Challenge FIAP — Fase 4**. Integra medições sintéticas, vídeo, áudio fictício, prescrições e movimentações em eventos rastreáveis, alertas demonstrativos e uma linha do tempo por paciente.
 
@@ -8,13 +8,13 @@ O objetivo de software é reunir fontes distintas e tornar sua análise temporal
 
 ## Documentação
 
-| Documento | Conteúdo |
-|---|---|
-| [Arquitetura](docs/ARCHITECTURE.md) | Componentes, fluxos, regras, correlação v2, dados e decisões |
-| [Diagramas](docs/DIAGRAMS.md) | Oito diagramas Mermaid de arquitetura, processamento, entidades e demonstração |
-| [API](docs/API_REFERENCE.md) | Endpoints, parâmetros, contratos, exemplos e erros |
-| [Demonstração](docs/DEMO_GUIDE.md) | Preparação, execução, interpretação e roteiro de 5–8 minutos |
-| [Testes](docs/TESTING.md) | Estratégia, comandos reproduzíveis, evidências e lacunas |
+| Documento                           | Conteúdo                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| [Arquitetura](docs/ARCHITECTURE.md) | Componentes, fluxos, regras, correlação v2, dados e decisões                   |
+| [Diagramas](docs/DIAGRAMS.md)       | Oito diagramas Mermaid de arquitetura, processamento, entidades e demonstração |
+| [API](docs/API_REFERENCE.md)        | Endpoints, parâmetros, contratos, exemplos e erros                             |
+| [Demonstração](docs/DEMO_GUIDE.md)  | Preparação, execução, interpretação e roteiro de 5–8 minutos                   |
+| [Testes](docs/TESTING.md)           | Estratégia, comandos reproduzíveis, evidências e lacunas                       |
 
 ## Funcionalidades implementadas
 
@@ -31,17 +31,17 @@ O objetivo de software é reunir fontes distintas e tornar sua análise temporal
 
 Monólito modular: Streamlit → REST → FastAPI → serviços → processadores e SQLAlchemy → PostgreSQL. Mídias ficam no sistema de arquivos. O processamento ocorre durante a requisição HTTP, sem fila ou worker externo.
 
-| Tecnologia | Responsabilidade |
-|---|---|
-| Python 3.11+; imagem Python 3.12 | Linguagem e ambiente |
-| FastAPI e Pydantic | API REST, OpenAPI e contratos |
-| SQLAlchemy e psycopg | Acesso relacional e conexão PostgreSQL |
-| PostgreSQL 16 | Persistência no Compose |
-| Streamlit 1.52+ e pandas | Interface e gráficos |
-| OpenCV e NumPy | Vídeo e métricas acústicas |
-| Azure Speech SDK | Transcrição externa de fala sintética |
-| Docker e Docker Compose | Serviços, volumes e verificações de saúde |
-| Pytest e HTTPX | Testes de regras, banco e API |
+| Tecnologia                       | Responsabilidade                          |
+| -------------------------------- | ----------------------------------------- |
+| Python 3.11+; imagem Python 3.12 | Linguagem e ambiente                      |
+| FastAPI e Pydantic               | API REST, OpenAPI e contratos             |
+| SQLAlchemy e psycopg             | Acesso relacional e conexão PostgreSQL    |
+| PostgreSQL 16                    | Persistência no Compose                   |
+| Streamlit 1.52+ e pandas         | Interface e gráficos                      |
+| OpenCV e NumPy                   | Vídeo e métricas acústicas                |
+| Azure Speech SDK                 | Transcrição externa de fala sintética     |
+| Docker e Docker Compose          | Serviços, volumes e verificações de saúde |
+| Pytest e HTTPX                   | Testes de regras, banco e API             |
 
 Versões efetivas em [pyproject.toml](pyproject.toml). Não há arquivo de versões travadas. O dashboard importa `pandas`, disponível como dependência transitiva do Streamlit, sem declaração direta no projeto.
 
@@ -86,13 +86,13 @@ docker compose up -d --build
 docker compose ps
 ```
 
-| Acesso | Endereço padrão |
-|---|---|
-| Dashboard | http://localhost:8501 |
-| Swagger | http://localhost:8000/docs |
-| OpenAPI | http://localhost:8000/openapi.json |
-| API | http://localhost:8000/api/v1 |
-| Saúde | http://localhost:8000/health |
+| Acesso    | Endereço padrão                    |
+| --------- | ---------------------------------- |
+| Dashboard | http://localhost:8501              |
+| Swagger   | http://localhost:8000/docs         |
+| OpenAPI   | http://localhost:8000/openapi.json |
+| API       | http://localhost:8000/api/v1       |
+| Saúde     | http://localhost:8000/health       |
 
 `/health` informa o estado da aplicação sem consultar o banco. O dashboard acrescenta `/api/v1` a `API_BASE_URL`: alterar somente `API_PREFIX` quebra essa integração.
 
