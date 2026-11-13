@@ -1,285 +1,172 @@
 # MedGuard AI
 
-Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto oferece uma API modular em FastAPI, persistência PostgreSQL, dashboard Streamlit e fluxos ponta a ponta de sinais vitais, vídeo, áudio, prescrições e movimentações sintéticas.
+Plataforma educacional de monitoramento multimodal para o **Tech Challenge FIAP — Fase 4**. Integra medições sintéticas, vídeo, áudio fictício, prescrições e movimentações em eventos rastreáveis, alertas demonstrativos e uma linha do tempo por paciente.
 
-> **Uso exclusivamente educacional.** O projeto aceita somente dados fictícios ou sintéticos, não é um dispositivo médico, não oferece diagnóstico e não deve apoiar decisões clínicas reais. Os limites usados no detector são exemplos de software, não referências clínicas universais.
+O objetivo de software é reunir fontes distintas e tornar sua análise temporal inspecionável, permitindo reprodução do ambiente, demonstração e continuidade do desenvolvimento.
 
-## O que as Etapas 1–4 entregam
+> Uso exclusivamente educacional com dados fictícios ou sintéticos. Não é um dispositivo médico e não deve orientar decisões clínicas. Correlação significa **coocorrência temporal**, sem estabelecer causalidade ou diagnóstico. Limites e severidades são exemplos de regras de software.
 
-- API REST FastAPI com Swagger em `http://localhost:8000/docs`.
-- PostgreSQL e ambiente completo via Docker Compose.
-- Dashboard Streamlit em `http://localhost:8501`.
-- Modelos persistentes para pacientes fictícios, mídia, jobs, medições, prescrições, eventos e alertas.
-- Upload controlado de áudio e vídeo fictícios, com hash SHA-256 e job rastreável.
-- Primeiro fluxo demonstrável: medição sintética → regras ilustrativas → evento → alerta.
-- Processamento real de vídeo com OpenCV, extração de metadados e amostragem de quadros.
-- Métricas determinísticas de movimento por diferença entre quadros, sem identificação de pessoas.
-- Detecção demonstrativa de baixa variação ou mudança visual abrupta → evento → alerta.
-- Job de vídeo rastreável nos estados `queued`, `processing`, `completed` e `failed`.
-- Vídeo geométrico sintético gerado por código para uma demonstração reproduzível.
-- Transcrição de áudio WAV sintético com Azure Speech, sem credenciais no repositório.
-- Métricas acústicas locais de duração, RMS, pico, silêncio e clipping.
-- Análise textual determinística com tratamento de negação, contexto histórico e terceiros.
-- Eventos de revisão humana para achados afirmativos, sem alerta ou diagnóstico automático.
-- Correlação temporal preliminar entre eventos sintéticos de áudio e sinais vitais.
-- Análise temporal das quatro medições sintéticas mais recentes, com regras transparentes para tendências de frequência cardíaca, SpO2 e pressão sistólica.
-- Verificação demonstrativa da sequência de prescrições fictícias, incluindo início duplicado e alteração ou encerramento sem registro ativo.
-- Verificação demonstrativa da continuidade de movimentações fictícias, incluindo origem/destino iguais, quebra de continuidade e transferências muito próximas.
-- Eventos e alertas rastreáveis para anomalias temporais e operacionais, sempre sujeitos a revisão humana.
-- Testes básicos da API, proteção contra dados não sintéticos, alertas e upload.
+## Documentação
 
-## Arquitetura
+| Documento | Conteúdo |
+|---|---|
+| [Arquitetura](docs/ARCHITECTURE.md) | Componentes, fluxos, regras, correlação v2, dados e decisões |
+| [Diagramas](docs/DIAGRAMS.md) | Oito diagramas Mermaid de arquitetura, processamento, entidades e demonstração |
+| [API](docs/API_REFERENCE.md) | Endpoints, parâmetros, contratos, exemplos e erros |
+| [Demonstração](docs/DEMO_GUIDE.md) | Preparação, execução, interpretação e roteiro de 5–8 minutos |
+| [Testes](docs/TESTING.md) | Estratégia, comandos reproduzíveis, evidências e lacunas |
 
-```mermaid
-flowchart LR
-    UI[Dashboard Streamlit] -->|REST| API[FastAPI]
-    API --> DB[(PostgreSQL)]
-    API --> FS[Storage local de mídia]
-    API --> VITAL[Regras sintéticas de sinais vitais]
-    VITAL --> EVENT[Evento clínico normalizado]
-    EVENT --> ALERT[Alerta persistido]
-    API --> VIDEO[OpenCV + análise de movimento]
-    VIDEO --> EVENT
-    API --> AUDIO[Azure Speech + análise acústica e textual]
-    AUDIO --> EVENT
-    API --> TEMPORAL[Regras temporais sintéticas]
-    API --> OPERATIONS[Prescrições e movimentações fictícias]
-    TEMPORAL --> EVENT
-    OPERATIONS --> EVENT
-```
+## Funcionalidades implementadas
 
-O desenho é um monólito modular: fácil de executar agora e com limites claros para substituir cada processador por implementação assíncrona nas etapas seguintes.
+- Cadastro de pacientes fictícios; avaliação pontual de medições e tendências de quatro registros.
+- Upload de mídia sintética, hash SHA-256 e jobs rastreáveis.
+- Análise de variação visual com OpenCV, sem identificação de pessoas ou interpretação clínica.
+- Transcrição WAV com Azure Speech em `pt-BR`, métricas acústicas e regras textuais contextuais.
+- Verificação de sequências de prescrições fictícias e continuidade de movimentações.
+- Eventos e alertas nos fluxos demonstrativos; áudio e correlação não criam alertas.
+- Correlação v1 de áudio–sinais vitais e v2 de áudio, vídeo e sinais vitais com deduplicação e unicidade persistente.
+- Dashboard v2 com KPIs, gráficos, explorador de correlações, linha do tempo e alertas.
 
-## Estrutura principal
+## Arquitetura e tecnologias
+
+Monólito modular: Streamlit → REST → FastAPI → serviços → processadores e SQLAlchemy → PostgreSQL. Mídias ficam no sistema de arquivos. O processamento ocorre durante a requisição HTTP, sem fila ou worker externo.
+
+| Tecnologia | Responsabilidade |
+|---|---|
+| Python 3.11+; imagem Python 3.12 | Linguagem e ambiente |
+| FastAPI e Pydantic | API REST, OpenAPI e contratos |
+| SQLAlchemy e psycopg | Acesso relacional e conexão PostgreSQL |
+| PostgreSQL 16 | Persistência no Compose |
+| Streamlit 1.52+ e pandas | Interface e gráficos |
+| OpenCV e NumPy | Vídeo e métricas acústicas |
+| Azure Speech SDK | Transcrição externa de fala sintética |
+| Docker e Docker Compose | Serviços, volumes e verificações de saúde |
+| Pytest e HTTPX | Testes de regras, banco e API |
+
+Versões efetivas em [pyproject.toml](pyproject.toml). Não há arquivo de versões travadas. O dashboard importa `pandas`, disponível como dependência transitiva do Streamlit, sem declaração direta no projeto.
+
+## Estrutura
 
 ```text
 app/
-  api/routes/        endpoints REST
-  core/              configuração
-  db/                modelos SQLAlchemy
-  modules/audio/     Azure Speech, análise acústica e regras textuais
-  modules/video/     leitura de quadros e análise de movimento com OpenCV
-  schemas/           validação e contratos da API
-  services/          fluxos multimodais, temporais e operacionais até eventos/alertas
-dashboard/           interface Streamlit
-samples/             dados sintéticos de exemplo
-storage/uploads/     mídia local ignorada pelo Git
-tests/               testes automatizados
+  api/routes/       pacientes, fluxos clínicos, mídia, jobs, demos e correlação
+  core/             configuração
+  db/               modelos, verificação e migração de esquema
+  modules/audio/    Azure Speech, acústica e regras textuais
+  modules/video/    OpenCV e vídeo geométrico
+  schemas/          contratos Pydantic
+  services/         orquestração, regras, eventos e alertas
+dashboard/          app.py e multimodal_v2.py
+scripts/            demo_multimodal.py
+samples/            vitals_demo.csv
+storage/            mídia local
+tests/              testes automatizados
+docs/               documentação técnica
+.github/workflows/  CI para main
 ```
 
-## Execução recomendada com Docker
+## Pré-requisitos e configuração
 
-Pré-requisitos: Docker Desktop e Docker Compose.
+Execução recomendada: Docker Desktop ativo com containers Linux e Docker Compose. Azure Speech e rede são necessários para transcrição fora dos mocks. Desenvolvimento local: Python 3.11+, `pip` e ambiente virtual.
 
-1. Crie o arquivo local de ambiente:
+Na raiz, crie `.env` somente se ainda não existir:
 
-   PowerShell:
-
-   ```powershell
-   Copy-Item .env.example .env
-   ```
-
-   Linux/macOS:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Suba todos os serviços:
-
-   ```bash
-   docker compose up --build
-   ```
-
-3. Abra:
-
-   - Dashboard: <http://localhost:8501>
-   - Swagger: <http://localhost:8000/docs>
-   - Health check: <http://localhost:8000/health>
-
-4. Encerre sem apagar o banco:
-
-   ```bash
-   docker compose down
-   ```
-
-Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apaga os dados locais do projeto.
-
-## Demonstrações em menos de um minuto
-
-### Séries temporais e operações — Etapa 4
-
-Na aba **Prescrições e movimentações**, selecione um paciente fictício e registre sequências deliberadamente inconsistentes. Para demonstrar uma tendência de sinais vitais, use a aba **Sinais vitais** e registre quatro medições sintéticas com valores crescentes de frequência cardíaca, por exemplo `70`, `82`, `94` e `106` bpm.
-
-A aplicação:
-
-1. analisa uma janela recente de quatro medições sintéticas;
-2. registra eventos para tendências configuradas e transparentes;
-3. compara cada ação de prescrição fictícia com o último estado do mesmo código;
-4. compara cada movimentação fictícia com o destino anterior;
-5. cria alertas demonstrativos e mantém no evento os motivos que exigem revisão humana.
-
-As regras comprovam o fluxo de software e não representam limites clínicos, validação farmacológica ou rastreamento real.
-
-### Áudio — Etapa 3
-
-Na aba **Mídia e jobs**, envie somente um arquivo WAV inteiramente sintético e marque-o como fictício. Depois, na aba **Análise de áudio**, processe o job. A aplicação:
-
-1. valida o paciente e a mídia sintéticos;
-2. transcreve o WAV em português com Azure Speech;
-3. calcula métricas acústicas locais;
-4. aplica regras textuais contextuais;
-5. persiste eventos de revisão humana, sem criar diagnóstico ou alerta clínico automático.
-
-As credenciais `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` devem existir apenas no arquivo local `.env`.
-
-### Vídeo — Etapa 2
-
-No dashboard, abra **Análise de vídeo** e clique em **Executar demonstração de vídeo sintético**. A aplicação:
-
-1. cria um paciente fictício específico da demonstração;
-2. gera um arquivo AVI com formas geométricas e a marca `SYNTHETIC`;
-3. registra a mídia e o job;
-4. decodifica e amostra quadros com OpenCV;
-5. calcula a porcentagem de pixels alterados entre quadros;
-6. persiste o evento e o alerta produzidos pelas regras educacionais.
-
-O mesmo fluxo pode ser executado pela API:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/demo/video-alert
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-### Sinais vitais — Etapa 1
+Revise [.env.example](.env.example). Use valores próprios de banco localmente; os padrões são de desenvolvimento. Nunca versione segredos. Não exponha este ambiente na internet: não há autenticação implementada.
 
-No dashboard, abra **Visão geral** e clique em **Executar demonstração de alerta**. A aplicação:
+### Docker Compose
 
-1. cria ou reutiliza o paciente `MG-DEMO-001`;
-2. registra uma medição deliberadamente anômala e sintética;
-3. aplica regras ilustrativas;
-4. persiste um evento de severidade crítica;
-5. cria um alerta aberto;
-6. mostra o resultado no painel.
+Para um banco novo:
 
-O mesmo fluxo pode ser executado pela API:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/demo/vital-alert
+```powershell
+docker compose up -d --build
+docker compose ps
 ```
 
-Depois, consulte:
-
-```bash
-curl http://localhost:8000/api/v1/events
-curl http://localhost:8000/api/v1/alerts
-```
-
-## Endpoints iniciais
-
-| Método | Rota | Finalidade |
-|---|---|---|
-| `GET` | `/health` | Estado da API |
-| `POST/GET` | `/api/v1/patients` | Cadastrar/listar pacientes fictícios |
-| `POST` | `/api/v1/patients/{id}/measurements` | Registrar e avaliar medição sintética |
-| `GET` | `/api/v1/patients/{id}/measurements` | Consultar medições |
-| `POST/GET` | `/api/v1/patients/{id}/prescriptions` | Registrar/listar prescrição fictícia |
-| `POST` | `/api/v1/patients/{id}/prescriptions/evaluate` | Registrar e avaliar sequência de prescrição fictícia |
-| `POST/GET` | `/api/v1/patients/{id}/movements` | Registrar, avaliar e listar movimentações fictícias |
-| `POST` | `/api/v1/patients/{id}/media` | Enviar áudio ou vídeo fictício |
-| `GET` | `/api/v1/media` | Consultar mídias |
-| `GET` | `/api/v1/jobs` | Consultar jobs |
-| `POST` | `/api/v1/jobs/{id}/process` | Processar um job de áudio ou vídeo pendente |
-| `POST` | `/api/v1/patients/{id}/correlations/run` | Correlacionar eventos sintéticos próximos no tempo |
-| `GET` | `/api/v1/events` | Consultar eventos normalizados |
-| `GET/PATCH` | `/api/v1/alerts` e `/api/v1/alerts/{id}` | Consultar e atualizar alertas |
-| `POST` | `/api/v1/demo/vital-alert` | Executar fluxo demonstrável |
-| `POST` | `/api/v1/demo/video-alert` | Gerar e analisar vídeo geométrico sintético |
-
-## Upload de mídia nesta etapa
-
-Formatos aceitos:
-
-- Áudio: `.wav` PCM de 16 bits.
-- Vídeo: `.mp4`, `.mov`, `.avi`, `.mkv`.
-
-O upload salva o arquivo, calcula o hash, cria `media_files` e registra um `processing_job` com status `queued`. Jobs de áudio e vídeo são processados por `POST /api/v1/jobs/{id}/process`.
-
-### Como a análise de áudio funciona
-
-O adaptador Azure Speech transcreve o WAV sintético em `pt-BR`. Em seguida, o pipeline calcula métricas acústicas e aplica regras contextuais transparentes sobre o texto. Expressões afirmativas podem criar eventos de baixa severidade para revisão humana; não são gerados diagnósticos nem alertas clínicos automáticos. Os testes substituem a chamada Azure por mocks e geram áudio sintético em memória.
-
-### Como a análise funciona
-
-O processador reduz cada quadro amostrado para uma matriz em tons de cinza e mede a proporção de pixels cuja intensidade mudou. Duas regras configuráveis criam eventos demonstrativos:
-
-- movimento médio abaixo de `VIDEO_LOW_MOTION_THRESHOLD`;
-- pico de mudança acima de `VIDEO_ABRUPT_MOTION_THRESHOLD`.
-
-Esses indicadores não representam postura, dor, queda, condição clínica nem identidade. São métricas visuais genéricas para comprovar o pipeline de software com dados sintéticos. MediaPipe/YOLO podem ser adicionados posteriormente como analisadores opcionais, mantendo o mesmo contrato de eventos.
-
-## Testes
-
-Com os containers ativos:
-
-```bash
-docker compose exec api pytest
-```
-
-Para executar localmente com Python 3.11+:
-
-```bash
-python -m venv .venv
-python -m pip install -e ".[dev]"
-pytest
-```
-
-Os testes usam SQLite temporário para permanecerem rápidos e isolados; a execução da aplicação usa PostgreSQL por padrão no Docker Compose.
-O workflow `.github/workflows/ci.yml` repete essa validação automaticamente em cada push ou pull request para `main` usando Python 3.12.
-
-## Variáveis de ambiente
-
-Consulte `.env.example`. Para processar áudio fora dos testes, configure localmente `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION`. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
-
-## Correspondência com o Tech Challenge
-
-| Requisito final | Estado após a Etapa 4 |
+| Acesso | Endereço padrão |
 |---|---|
-| Vídeo clínico e eventos fora do padrão | Pipeline OpenCV, métricas de movimento, eventos e alertas demonstrativos implementados com vídeo sintético |
-| Áudio, transcrição e análise textual | Azure Speech, métricas acústicas e análise textual determinística implementados para WAV sintético |
-| Anomalias em sinais vitais | Regras pontuais e análise temporal transparente sobre janelas de medições sintéticas |
-| Prescrições e movimentação | Detectores demonstrativos de sequência e continuidade implementados com dados fictícios |
-| Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais, vídeo, prescrições e movimentações |
-| Fusão multimodal | Correlação temporal preliminar implementada; evolução e validação continuam nas próximas etapas |
-| Relatório e vídeo final | Planejados para a Etapa 8 |
+| Dashboard | http://localhost:8501 |
+| Swagger | http://localhost:8000/docs |
+| OpenAPI | http://localhost:8000/openapi.json |
+| API | http://localhost:8000/api/v1 |
+| Saúde | http://localhost:8000/health |
 
-## Próximas etapas
+`/health` informa o estado da aplicação sem consultar o banco. O dashboard acrescenta `/api/v1` a `API_BASE_URL`: alterar somente `API_PREFIX` quebra essa integração.
 
-1. Evoluir o analisador de vídeo com pose opcional e validação sobre material inteiramente sintético.
-2. Ampliar a correlação multimodal e consolidar eventos relacionados em uma linha do tempo.
-3. Aprimorar alertas, métricas de qualidade, observabilidade e validação para a entrega final.
+Para parar preservando os volumes:
 
+```powershell
+docker compose down
+```
 
+### Migração segura de PostgreSQL existente
 
-### Atualizar um banco existente (Dashboard v2)
+`create_all()` não altera tabelas antigas. Para volume anterior à coluna `clinical_events.correlation_key`, mantenha uma cópia de segurança sob responsabilidade do operador e execute em janela de manutenção:
 
-`create_all()` cria tabelas novas, mas nao altera tabelas existentes. Antes de
-iniciar a API com um volume antigo, execute a migracao explicita:
-
-```sh
+```powershell
+docker compose up -d db
 docker compose stop api dashboard
 docker compose build api dashboard
 docker compose run --rm --no-deps api python -m app.db.migrate_correlation_keys
 docker compose up -d
+docker compose ps
 ```
 
-O banco deve estar em execucao (`docker compose up -d db`). No PowerShell, se
-necessario, defina `$env:DOCKER_BUILDKIT = "0"` e
-`$env:COMPOSE_DOCKER_CLI_BUILD = "0"` antes do build.
-A migracao e transacional e repetivel: adiciona a coluna nullable, preenche as
-chaves deterministicas e cria o indice unico. Correlacoes historicas duplicadas
-permanecem com chave NULL; nenhum registro e removido. Execute em uma janela de
-manutencao: a migracao bloqueia escritas na tabela enquanto atualiza as chaves.
-A API recusa iniciar se a coluna ou o indice unico estiver pendente e informa o
-comando necessario no log. Nao e necessario remover volumes.
+Aguarde o banco saudável antes da migração. Ela é transacional e repetível. No PostgreSQL usa `ACCESS EXCLUSIVE`, bloqueando o acesso concorrente à tabela. Adiciona a coluna anulável, preenche fingerprints e cria índice único. Duplicatas históricas ficam com chave `NULL`; nenhum registro é excluído. O comando pressupõe a tabela existente; um banco vazio deve ser inicializado pela API. A API recusa esquema pendente. Detalhes em [Arquitetura](docs/ARCHITECTURE.md#persistência-e-migração).
 
-O dashboard requer Streamlit >=1.52 para a API `width="stretch"`.
+O procedimento anterior também registrava, para problemas específicos de build legado, `$env:DOCKER_BUILDKIT = "0"` e `$env:COMPOSE_DOCKER_CLI_BUILD = "0"` antes do build; não são requisitos gerais.
+
+### Azure Speech
+
+Preencha apenas no `.env` local `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` com os valores do recurso Speech. Para aplicar mudanças:
+
+```powershell
+docker compose up -d --force-recreate api
+```
+
+O adaptador usa `recognize_once_async()` em `pt-BR`, sem transcrição contínua. `AZURE_LANGUAGE_ENDPOINT` e `AZURE_LANGUAGE_KEY` são configurações reservadas, sem integração ativa. A análise textual é local e determinística. Use WAV inteiramente sintético, PCM de 16 bits sem compressão.
+
+### Execução local
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+$env:DATABASE_URL = "sqlite:///./medguard.db"
+$env:STORAGE_DIR = "storage/uploads"
+python -m uvicorn app.main:app --reload
+```
+
+SQLite permite desenvolvimento e testes, mas não reproduz integralmente PostgreSQL. Para PostgreSQL local, use uma URL acessível pela máquina; `db` é o host interno do Compose. Em outro terminal com o ambiente virtual ativo:
+
+```powershell
+$env:API_BASE_URL = "http://localhost:8000"
+python -m streamlit run dashboard/app.py
+```
+
+## Testes e demonstração
+
+```powershell
+docker compose exec api python -m pytest
+```
+
+Localmente, após instalar dependências: `python -m pytest`. Prefira invocação por módulo para resolver imports entre arquivos de `tests/`. Consulte [Testes](docs/TESTING.md) para evidências e limitações.
+
+A demonstração usa endpoints públicos e gera paciente e vídeo próprios. O WAV é uma preparação local, não um arquivo garantido pelo Git:
+
+```powershell
+docker compose exec api python -m scripts.demo_multimodal --audio /app/storage/test_audio2.wav --api-url http://localhost:8000/api/v1
+```
+
+O [guia](docs/DEMO_GUIDE.md) explica preparação, resultado histórico `PASS`, Dashboard v2 e idempotência. Demos isoladas: `POST /api/v1/demo/vital-alert` e `POST /api/v1/demo/video-alert`; usam pacientes próprios e não substituem o cenário integrado.
+
+## Segurança, limitações e próximos passos
+
+A marca sintética é declarada pelo remetente; não há detecção automática de dados pessoais. Não envie dados reais, segredos, gravações pessoais ou backups ao Git. Não há autenticação, autorização, TLS configurado pelo projeto, retenção automática ou auditoria completa. CORS não é controle de acesso.
+
+Uploads têm limite de tamanho e extensão; o conteúdo é validado na decodificação. Não há antivírus, deduplicação de mídia por hash ou transação atômica entre arquivo e banco. Jobs são síncronos; falhas inesperadas podem exigir intervenção. O dashboard consulta recortes recentes, sem atualização periódica automática.
+
+Evoluções: dependências diretas e versões travadas, autenticação, testes PostgreSQL/concorrência, paginação, processamento assíncrono, observabilidade e testes da interface. Pose, YOLO e MediaPipe não estão integrados. A equipe ainda deve preparar apresentação e vídeo final da FIAP.
