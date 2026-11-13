@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from app import db
 from app.db.models import ClinicalEvent, Patient, Severity
 
+import hashlib
+import json
+
+from sqlalchemy.exc import IntegrityError
+
 SOURCE = "multimodal_correlation"
 EVENT_TYPE = "synthetic_multimodal_correlation_v2"
 RULE_VERSION = "multimodal_temporal_v2"
@@ -39,6 +44,23 @@ SEVERITY_RANK = {
     "high": 3,
     "critical": 4,
 }
+
+def correlation_fingerprint(
+    patient_id: str,
+    source_ids: tuple[str, ...],
+) -> str:
+    raw = json.dumps(
+        [
+            EVENT_TYPE,
+            patient_id,
+            sorted(source_ids),
+        ],
+        separators=(",", ":"),
+    )
+
+    return hashlib.sha256(
+        raw.encode("utf-8")
+    ).hexdigest()
 
 
 def as_utc(value: datetime) -> datetime:
@@ -223,6 +245,7 @@ def correlate_multimodal_v2(
         )
 
         correlation = ClinicalEvent(
+            correlation_key=correlation_fingerprint(patient_id, key),
             patient_id=patient_id,
             source=SOURCE,
             event_type=EVENT_TYPE,
@@ -261,12 +284,21 @@ def correlate_multimodal_v2(
                 ),
             },
         )
+        
+        try:
+            with db.begin_nested():
+                db.add(correlation)
+                db.flush()
 
-        db.add(correlation)
-        db.flush()
+        except IntegrityError:
+            # Another request may have inserted this same
+            # correlation first. Preserve the outer transaction.
+            existing_keys.add(key)
+            continue
 
         created.append(correlation)
         existing_keys.add(key)
+
 
     db.commit()
 

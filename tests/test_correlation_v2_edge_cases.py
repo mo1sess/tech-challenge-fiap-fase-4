@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.exc import IntegrityError
 
 from app.db.base import Base
 from app.db.models import ClinicalEvent, Patient
@@ -33,6 +34,48 @@ def db():
 
     engine.dispose()
 
+
+def test_database_rejects_duplicate_correlation_key(db):
+    patient = make_patient(db)
+
+    make_event(
+        db,
+        patient.id,
+        "audio_analysis",
+        seconds=0,
+    )
+
+    make_event(
+        db,
+        patient.id,
+        "video_analysis",
+        seconds=60,
+    )
+
+    created = correlate(db, patient.id)
+
+    assert len(created) == 1
+    assert created[0].correlation_key is not None
+
+    duplicate = ClinicalEvent(
+        patient_id=patient.id,
+        correlation_key=created[0].correlation_key,
+        source="multimodal_correlation",
+        event_type="synthetic_multimodal_correlation_v2",
+        severity="low",
+        title="Duplicate correlation",
+        description="Database uniqueness test",
+        payload=created[0].payload,
+        occurred_at=created[0].occurred_at,
+    )
+
+    with pytest.raises(IntegrityError):
+        with db.begin_nested():
+            db.add(duplicate)
+            db.flush()
+
+    # The original record remains valid.
+    assert correlate(db, patient.id) == []
 
 def make_patient(db, code="MG-CORR-001"):
     patient = Patient(

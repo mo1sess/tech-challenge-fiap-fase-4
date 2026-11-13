@@ -128,6 +128,9 @@ class ClinicalEvent(Base):
     __tablename__ = "clinical_events"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    correlation_key: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
     patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
     measurement_id: Mapped[str | None] = mapped_column(ForeignKey("clinical_measurements.id"), nullable=True)
     source: Mapped[str] = mapped_column(String(50), index=True)
