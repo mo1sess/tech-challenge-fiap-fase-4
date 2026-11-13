@@ -1,10 +1,10 @@
 # MedGuard AI
 
-Implementação das Etapas 1 e 2 do Tech Challenge FIAP - Fase 4. O projeto oferece uma API modular em FastAPI, persistência PostgreSQL, dashboard Streamlit e fluxos ponta a ponta de sinais vitais e análise de movimento em vídeos sintéticos.
+Implementação das Etapas 1, 2 e 3 do Tech Challenge FIAP - Fase 4. O projeto oferece uma API modular em FastAPI, persistência PostgreSQL, dashboard Streamlit e fluxos ponta a ponta de sinais vitais, vídeo e áudio sintéticos.
 
 > **Uso exclusivamente educacional.** O projeto aceita somente dados fictícios ou sintéticos, não é um dispositivo médico, não oferece diagnóstico e não deve apoiar decisões clínicas reais. Os limites usados no detector são exemplos de software, não referências clínicas universais.
 
-## O que a Etapa 2 entrega
+## O que as Etapas 1–3 entregam
 
 - API REST FastAPI com Swagger em `http://localhost:8000/docs`.
 - PostgreSQL e ambiente completo via Docker Compose.
@@ -17,8 +17,11 @@ Implementação das Etapas 1 e 2 do Tech Challenge FIAP - Fase 4. O projeto ofer
 - Detecção demonstrativa de baixa variação ou mudança visual abrupta → evento → alerta.
 - Job de vídeo rastreável nos estados `queued`, `processing`, `completed` e `failed`.
 - Vídeo geométrico sintético gerado por código para uma demonstração reproduzível.
-- Módulo de áudio preparado, mas explicitamente ainda não executado.
-- Variáveis Azure reservadas para as próximas etapas.
+- Transcrição de áudio WAV sintético com Azure Speech, sem credenciais no repositório.
+- Métricas acústicas locais de duração, RMS, pico, silêncio e clipping.
+- Análise textual determinística com tratamento de negação, contexto histórico e terceiros.
+- Eventos de revisão humana para achados afirmativos, sem alerta ou diagnóstico automático.
+- Correlação temporal preliminar entre eventos sintéticos de áudio e sinais vitais.
 - Testes básicos da API, proteção contra dados não sintéticos, alertas e upload.
 
 ## Arquitetura
@@ -33,7 +36,8 @@ flowchart LR
     EVENT --> ALERT[Alerta persistido]
     API --> VIDEO[OpenCV + análise de movimento]
     VIDEO --> EVENT
-    API -. próximas etapas .-> AUDIO[Azure Speech + Language + análise acústica]
+    API --> AUDIO[Azure Speech + análise acústica e textual]
+    AUDIO --> EVENT
 ```
 
 O desenho é um monólito modular: fácil de executar agora e com limites claros para substituir cada processador por implementação assíncrona nas etapas seguintes.
@@ -45,7 +49,7 @@ app/
   api/routes/        endpoints REST
   core/              configuração
   db/                modelos SQLAlchemy
-  modules/audio/     contrato inicial do pipeline de áudio
+  modules/audio/     Azure Speech, análise acústica e regras textuais
   modules/video/     leitura de quadros e análise de movimento com OpenCV
   schemas/           validação e contratos da API
   services/          fluxos de sinais vitais e vídeo até eventos/alertas
@@ -94,6 +98,18 @@ Pré-requisitos: Docker Desktop e Docker Compose.
 Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apaga os dados locais do projeto.
 
 ## Demonstrações em menos de um minuto
+
+### Áudio — Etapa 3
+
+Na aba **Mídia e jobs**, envie somente um arquivo WAV inteiramente sintético e marque-o como fictício. Depois, na aba **Análise de áudio**, processe o job. A aplicação:
+
+1. valida o paciente e a mídia sintéticos;
+2. transcreve o WAV em português com Azure Speech;
+3. calcula métricas acústicas locais;
+4. aplica regras textuais contextuais;
+5. persiste eventos de revisão humana, sem criar diagnóstico ou alerta clínico automático.
+
+As credenciais `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` devem existir apenas no arquivo local `.env`.
 
 ### Vídeo — Etapa 2
 
@@ -148,7 +164,8 @@ curl http://localhost:8000/api/v1/alerts
 | `POST` | `/api/v1/patients/{id}/media` | Enviar áudio ou vídeo fictício |
 | `GET` | `/api/v1/media` | Consultar mídias |
 | `GET` | `/api/v1/jobs` | Consultar jobs |
-| `POST` | `/api/v1/jobs/{id}/process` | Processar um job de vídeo pendente |
+| `POST` | `/api/v1/jobs/{id}/process` | Processar um job de áudio ou vídeo pendente |
+| `POST` | `/api/v1/patients/{id}/correlations/run` | Correlacionar eventos sintéticos próximos no tempo |
 | `GET` | `/api/v1/events` | Consultar eventos normalizados |
 | `GET/PATCH` | `/api/v1/alerts` e `/api/v1/alerts/{id}` | Consultar e atualizar alertas |
 | `POST` | `/api/v1/demo/vital-alert` | Executar fluxo demonstrável |
@@ -158,10 +175,14 @@ curl http://localhost:8000/api/v1/alerts
 
 Formatos aceitos:
 
-- Áudio: `.wav`, `.mp3`, `.m4a`, `.ogg`.
+- Áudio: `.wav` PCM de 16 bits.
 - Vídeo: `.mp4`, `.mov`, `.avi`, `.mkv`.
 
-O upload salva o arquivo, calcula o hash, cria `media_files` e registra um `processing_job` com status `queued`. Jobs de vídeo são processados por `POST /api/v1/jobs/{id}/process`; jobs de áudio permanecem na fila até a Etapa 3.
+O upload salva o arquivo, calcula o hash, cria `media_files` e registra um `processing_job` com status `queued`. Jobs de áudio e vídeo são processados por `POST /api/v1/jobs/{id}/process`.
+
+### Como a análise de áudio funciona
+
+O adaptador Azure Speech transcreve o WAV sintético em `pt-BR`. Em seguida, o pipeline calcula métricas acústicas e aplica regras contextuais transparentes sobre o texto. Expressões afirmativas podem criar eventos de baixa severidade para revisão humana; não são gerados diagnósticos nem alertas clínicos automáticos. Os testes substituem a chamada Azure por mocks e geram áudio sintético em memória.
 
 ### Como a análise funciona
 
@@ -193,24 +214,23 @@ O workflow `.github/workflows/ci.yml` repete essa validação automaticamente em
 
 ## Variáveis de ambiente
 
-Consulte `.env.example`. As credenciais Azure estão vazias e reservadas para a futura integração com Azure Speech e Azure AI Language. Nunca envie chaves reais ao Git.
+Consulte `.env.example`. Para processar áudio fora dos testes, configure localmente `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION`. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
 
 ## Correspondência com o Tech Challenge
 
-| Requisito final | Estado após a Etapa 2 |
+| Requisito final | Estado após a Etapa 3 |
 |---|---|
 | Vídeo clínico e eventos fora do padrão | Pipeline OpenCV, métricas de movimento, eventos e alertas demonstrativos implementados com vídeo sintético |
-| Áudio, transcrição e análise textual Azure | Estrutura, upload e configuração preparados; implementação na Etapa 3 |
+| Áudio, transcrição e análise textual | Azure Speech, métricas acústicas e análise textual determinística implementados para WAV sintético |
 | Anomalias em sinais vitais | Primeiro fluxo por regras sintéticas implementado; modelos temporais na Etapa 4 |
 | Prescrições e movimentação | Persistência inicial de prescrições; detectores na Etapa 4 |
 | Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais e vídeo |
-| Fusão multimodal | Modelo de eventos normalizado preparado; correlação na Etapa 5 |
+| Fusão multimodal | Correlação temporal preliminar implementada; evolução e validação continuam nas próximas etapas |
 | Relatório e vídeo final | Planejados para a Etapa 8 |
 
 ## Próximas etapas
 
-1. Implementar áudio com Azure Speech, Azure AI Language e características acústicas.
+1. Evoluir sinais vitais para séries temporais e adicionar anomalias de prescrições e movimentação.
 2. Evoluir o analisador de vídeo com pose opcional e validação sobre material inteiramente sintético.
-3. Evoluir sinais vitais para séries temporais e adicionar anomalias de prescrições e movimentação.
-4. Correlacionar eventos multimodais, aprimorar alertas, métricas e validação.
+3. Ampliar a correlação multimodal, aprimorar alertas, métricas e validação.
 

@@ -27,14 +27,21 @@ def load_patients() -> list[dict[str, Any]]:
 
 
 st.title("🛡️ MedGuard AI")
-st.caption("Tech Challenge FIAP - Fase 4 | Etapa 2: analise educacional de video sintetico")
+st.caption("Tech Challenge FIAP - Fase 4 | Etapa 3: audio e video sinteticos")
 st.warning(
     "Ambiente educacional. Use apenas pacientes, midias e medicoes ficticias. "
     "Os limites da demonstracao nao sao referencia clinica e o sistema nao realiza diagnosticos."
 )
 
-overview_tab, patients_tab, vitals_tab, video_tab, media_tab = st.tabs(
-    ["Visao geral", "Pacientes ficticios", "Sinais vitais", "Analise de video", "Midia e jobs"]
+overview_tab, patients_tab, vitals_tab, video_tab, audio_tab, media_tab = st.tabs(
+    [
+        "Visao geral",
+        "Pacientes ficticios",
+        "Sinais vitais",
+        "Analise de video",
+        "Analise de audio",
+        "Midia e jobs",
+    ]
 )
 
 with overview_tab:
@@ -124,14 +131,14 @@ with vitals_tab:
 
 with media_tab:
     st.subheader("Registrar audio ou video ficticio")
-    st.info("Videos podem ser processados nesta etapa. O audio permanece preparado para a Etapa 3.")
+    st.info("Videos e audios WAV sinteticos podem ser processados nesta etapa.")
     patients = load_patients()
     if not patients:
         st.info("Cadastre um paciente ficticio antes de enviar midia.")
     else:
         options = {f"{item['code']} - {item['alias']}": item["id"] for item in patients}
         selected = st.selectbox("Paciente da midia", list(options), key="media_patient")
-        uploaded = st.file_uploader("Arquivo ficticio", type=["wav", "mp3", "m4a", "ogg", "mp4", "mov", "avi", "mkv"])
+        uploaded = st.file_uploader("Arquivo ficticio", type=["wav", "mp4", "mov", "avi", "mkv"])
         if st.button("Registrar midia", disabled=uploaded is None):
             if uploaded is not None:
                 result = api_request(
@@ -144,6 +151,8 @@ with media_tab:
                     st.success("Midia e job registrados.")
                     if result["media"]["kind"] == "video":
                         st.session_state["last_video_job_id"] = result["job"]["id"]
+                    else:
+                        st.session_state["last_audio_job_id"] = result["job"]["id"]
                     st.json(result)
 
     jobs = api_request("GET", "/jobs?limit=20") or []
@@ -187,4 +196,32 @@ with video_tab:
         st.dataframe(video_events, use_container_width=True, hide_index=True)
     else:
         st.info("Ainda nao ha eventos de video. Execute a demonstracao ou envie um video ficticio.")
+
+
+with audio_tab:
+    st.subheader("Fluxo de audio sintetico")
+    st.write("Audio WAV sintetico → Azure Speech → metricas acusticas → analise textual → evento de revisao")
+    st.caption(
+        "A transcricao exige credenciais Azure configuradas. Os achados sao educacionais, "
+        "exigem revisao humana e nao geram diagnostico automatico."
+    )
+
+    last_audio_job_id = st.session_state.get("last_audio_job_id")
+    if last_audio_job_id:
+        st.write(f"Ultimo job de audio enviado: `{last_audio_job_id}`")
+        if st.button("Processar ultimo audio enviado", use_container_width=True):
+            result = api_request("POST", f"/jobs/{last_audio_job_id}/process")
+            if result:
+                st.success("Analise de audio concluida.")
+                st.json(result)
+    else:
+        st.info("Envie um WAV sintetico na aba Midia e jobs para iniciar a analise.")
+
+    audio_events = api_request("GET", "/events?limit=50") or []
+    audio_events = [item for item in audio_events if item.get("source") == "audio_analysis"]
+    st.subheader("Eventos recentes de audio")
+    if audio_events:
+        st.dataframe(audio_events, use_container_width=True, hide_index=True)
+    else:
+        st.info("Ainda nao ha eventos de audio processados.")
 
