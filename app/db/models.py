@@ -113,6 +113,17 @@ class Prescription(Base):
     is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+class PatientMovement(Base):
+    __tablename__ = "patient_movements"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"), index=True)
+    from_location: Mapped[str] = mapped_column(String(80))
+    to_location: Mapped[str] = mapped_column(String(80))
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class ClinicalEvent(Base):
     __tablename__ = "clinical_events"
 

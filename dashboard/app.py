@@ -27,19 +27,20 @@ def load_patients() -> list[dict[str, Any]]:
 
 
 st.title("🛡️ MedGuard AI")
-st.caption("Tech Challenge FIAP - Fase 4 | Etapa 3: audio e video sinteticos")
+st.caption("Tech Challenge FIAP - Fase 4 | Etapa 4: monitoramento sintetico multimodal")
 st.warning(
     "Ambiente educacional. Use apenas pacientes, midias e medicoes ficticias. "
     "Os limites da demonstracao nao sao referencia clinica e o sistema nao realiza diagnosticos."
 )
 
-overview_tab, patients_tab, vitals_tab, video_tab, audio_tab, media_tab = st.tabs(
+overview_tab, patients_tab, vitals_tab, video_tab, audio_tab, operations_tab, media_tab = st.tabs(
     [
         "Visao geral",
         "Pacientes ficticios",
         "Sinais vitais",
         "Analise de video",
         "Analise de audio",
+        "Prescricoes e movimentacoes",
         "Midia e jobs",
     ]
 )
@@ -224,4 +225,69 @@ with audio_tab:
         st.dataframe(audio_events, use_container_width=True, hide_index=True)
     else:
         st.info("Ainda nao ha eventos de audio processados.")
+
+
+with operations_tab:
+    st.subheader("Regras demonstrativas da Etapa 4")
+    st.caption(
+        "As regras verificam somente sequencias de dados ficticios. "
+        "Nao realizam validacao farmacologica, rastreamento real ou diagnostico."
+    )
+    patients = load_patients()
+    if not patients:
+        st.info("Cadastre um paciente ficticio antes de executar os fluxos.")
+    else:
+        options = {f"{item['code']} - {item['alias']}": item["id"] for item in patients}
+        selected = st.selectbox("Paciente da Etapa 4", list(options), key="phase4_patient")
+        patient_id = options[selected]
+
+        prescription_col, movement_col = st.columns(2)
+        with prescription_col:
+            st.markdown("#### Prescricao sintetica")
+            with st.form("prescription_evaluation_form"):
+                medication_code = st.text_input("Codigo ficticio", value="MED-SYNTH-001")
+                action = st.selectbox("Acao", ["started", "changed", "stopped"])
+                submitted = st.form_submit_button("Registrar e avaliar prescricao")
+                if submitted:
+                    result = api_request(
+                        "POST",
+                        f"/patients/{patient_id}/prescriptions/evaluate",
+                        json={
+                            "medication_code": medication_code,
+                            "action": action,
+                            "is_synthetic": True,
+                        },
+                    )
+                    if result:
+                        st.success("Prescricao sintetica avaliada.")
+                        st.json(result)
+
+        with movement_col:
+            st.markdown("#### Movimentacao sintetica")
+            with st.form("movement_evaluation_form"):
+                from_location = st.text_input("Origem ficticia", value="ala-a-sintetica")
+                to_location = st.text_input("Destino ficticio", value="ala-b-sintetica")
+                submitted = st.form_submit_button("Registrar e avaliar movimentacao")
+                if submitted:
+                    result = api_request(
+                        "POST",
+                        f"/patients/{patient_id}/movements",
+                        json={
+                            "from_location": from_location,
+                            "to_location": to_location,
+                            "is_synthetic": True,
+                        },
+                    )
+                    if result:
+                        st.success("Movimentacao sintetica avaliada.")
+                        st.json(result)
+
+    phase4_events = api_request("GET", "/events?limit=100") or []
+    phase4_sources = {"vital_trends", "prescription_analysis", "movement_analysis"}
+    phase4_events = [item for item in phase4_events if item.get("source") in phase4_sources]
+    st.subheader("Eventos recentes da Etapa 4")
+    if phase4_events:
+        st.dataframe(phase4_events, use_container_width=True, hide_index=True)
+    else:
+        st.info("Ainda nao ha eventos temporais, de prescricao ou de movimentacao.")
 

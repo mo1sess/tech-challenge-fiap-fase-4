@@ -5,7 +5,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.db.models import Alert, AlertStatus, ClinicalEvent, ClinicalMeasurement, Patient, Prescription
+from app.db.models import (
+    Alert,
+    AlertStatus,
+    ClinicalEvent,
+    ClinicalMeasurement,
+    Patient,
+    PatientMovement,
+    Prescription,
+)
 from app.schemas.clinical import (
     AlertRead,
     AlertStatusUpdate,
@@ -13,10 +21,18 @@ from app.schemas.clinical import (
     MeasurementCreate,
     MeasurementIngestResponse,
     MeasurementRead,
+    MovementCreate,
+    MovementIngestResponse,
+    MovementRead,
     PrescriptionCreate,
+    PrescriptionIngestResponse,
     PrescriptionRead,
 )
 from app.services.clinical_flow import ingest_synthetic_measurement
+from app.services.movement_flow import DISCLAIMER as MOVEMENT_DISCLAIMER
+from app.services.movement_flow import ingest_synthetic_movement
+from app.services.prescription_flow import DISCLAIMER as PRESCRIPTION_DISCLAIMER
+from app.services.prescription_flow import ingest_synthetic_prescription
 from app.services.vital_signs import DISCLAIMER
 
 
@@ -87,6 +103,65 @@ def create_prescription(
 def list_prescriptions(patient_id: str, db: Session = Depends(get_db)) -> list[Prescription]:
     require_patient(db, patient_id)
     statement = select(Prescription).where(Prescription.patient_id == patient_id).order_by(Prescription.recorded_at.desc())
+    return list(db.scalars(statement))
+
+
+@router.post(
+    "/patients/{patient_id}/prescriptions/evaluate",
+    response_model=PrescriptionIngestResponse,
+    status_code=201,
+)
+def evaluate_prescription(
+    patient_id: str,
+    payload: PrescriptionCreate,
+    db: Session = Depends(get_db),
+) -> PrescriptionIngestResponse:
+    patient = require_patient(db, patient_id)
+    prescription, events, alerts = ingest_synthetic_prescription(db, patient, payload)
+    return PrescriptionIngestResponse(
+        prescription=prescription,
+        events=events,
+        alerts=alerts,
+        disclaimer=PRESCRIPTION_DISCLAIMER,
+    )
+
+
+@router.post(
+    "/patients/{patient_id}/movements",
+    response_model=MovementIngestResponse,
+    status_code=201,
+)
+def create_movement(
+    patient_id: str,
+    payload: MovementCreate,
+    db: Session = Depends(get_db),
+) -> MovementIngestResponse:
+    patient = require_patient(db, patient_id)
+    movement, events, alerts = ingest_synthetic_movement(db, patient, payload)
+    return MovementIngestResponse(
+        movement=movement,
+        events=events,
+        alerts=alerts,
+        disclaimer=MOVEMENT_DISCLAIMER,
+    )
+
+
+@router.get(
+    "/patients/{patient_id}/movements",
+    response_model=list[MovementRead],
+)
+def list_movements(
+    patient_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[PatientMovement]:
+    require_patient(db, patient_id)
+    statement = (
+        select(PatientMovement)
+        .where(PatientMovement.patient_id == patient_id)
+        .order_by(PatientMovement.recorded_at.desc())
+        .limit(limit)
+    )
     return list(db.scalars(statement))
 
 

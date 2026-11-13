@@ -88,3 +88,33 @@ class PrescriptionRead(ORMModel):
     recorded_at: datetime
     is_synthetic: bool
 
+
+class PrescriptionIngestResponse(BaseModel):
+    prescription: PrescriptionRead
+    events: list[EventRead]
+    alerts: list[AlertRead]
+    disclaimer: str
+
+
+class MovementCreate(BaseModel):
+    from_location: str = Field(min_length=2, max_length=80)
+    to_location: str = Field(min_length=2, max_length=80)
+    recorded_at: datetime | None = None
+    is_synthetic: Literal[True] = True
+
+
+class MovementRead(ORMModel):
+    id: str
+    patient_id: str
+    from_location: str
+    to_location: str
+    recorded_at: datetime
+    is_synthetic: bool
+
+
+class MovementIngestResponse(BaseModel):
+    movement: MovementRead
+    events: list[EventRead]
+    alerts: list[AlertRead]
+    disclaimer: str
+
