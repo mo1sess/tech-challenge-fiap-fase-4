@@ -11,6 +11,7 @@ from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.db import models  # noqa: F401 - ensures model metadata is registered
 from app.db.base import Base
+from app.db.schema import check_schema
 from app.schemas.common import HealthResponse
 
 
@@ -32,8 +33,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI):
         settings.storage_dir.mkdir(parents=True, exist_ok=True)
         Base.metadata.create_all(bind=engine)
-        yield
-        engine.dispose()
+        try:
+            check_schema(engine)
+            yield
+        finally:
+            engine.dispose()
 
     application = FastAPI(
         title=settings.app_name,

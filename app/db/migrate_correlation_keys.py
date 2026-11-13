@@ -1,5 +1,5 @@
 
-"""One-time migration for multimodal correlation uniqueness."""
+"""Repeatable migration for multimodal correlation uniqueness."""
 
 import hashlib
 import json
@@ -19,14 +19,17 @@ def fingerprint(patient_id: str, source_ids: list[str]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def run_migration() -> None:
-    engine = build_engine(get_settings())
+def run_migration(engine=None) -> None:
+    owns_engine = engine is None
+    engine = engine if engine is not None else build_engine(get_settings())
 
     try:
         with engine.begin() as connection:
             dialect = connection.dialect.name
 
             if dialect == "postgresql":
+                # Serialize migrations and prevent concurrent writes during backfill.
+                connection.execute(text("LOCK TABLE clinical_events IN ACCESS EXCLUSIVE MODE"))
                 connection.execute(text(
                     "ALTER TABLE clinical_events "
                     "ADD COLUMN IF NOT EXISTS correlation_key VARCHAR(64)"
@@ -51,6 +54,13 @@ def run_migration() -> None:
                   AND event_type = 'synthetic_multimodal_correlation_v2'
                 ORDER BY created_at, id
             """)).mappings().all()
+
+            # Clear managed keys first so an existing unique index cannot reject
+            # reassignment to the oldest historical duplicate on a repeated run.
+            for row in rows:
+                connection.execute(text(
+                    "UPDATE clinical_events SET correlation_key = NULL WHERE id = :id"
+                ), {"id": row["id"]})
 
             used_keys = set()
             duplicates = 0
@@ -101,7 +111,8 @@ def run_migration() -> None:
             )
 
     finally:
-        engine.dispose()
+        if owns_engine:
+            engine.dispose()
 
 
 if __name__ == "__main__":

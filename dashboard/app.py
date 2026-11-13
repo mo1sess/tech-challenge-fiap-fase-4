@@ -57,7 +57,7 @@ st.warning(
 with overview_tab:
     st.subheader("Fluxo demonstravel")
     st.write("Paciente sintetico → medicao anomala → evento normalizado → alerta aberto")
-    if st.button("Executar demonstracao de alerta", type="primary", use_container_width=True):
+    if st.button("Executar demonstracao de alerta", type="primary", width="stretch"):
         result = api_request("POST", "/demo/vital-alert")
         if result:
             st.success("Fluxo executado e persistido.")
@@ -70,7 +70,7 @@ with overview_tab:
     alerts = api_request("GET", "/alerts?limit=20") or []
     st.subheader("Alertas recentes")
     if alerts:
-        st.dataframe(alerts, use_container_width=True, hide_index=True)
+        st.dataframe(alerts, width="stretch", hide_index=True)
     else:
         st.info("Ainda nao ha alertas. Execute a demonstracao acima.")
 
@@ -100,7 +100,7 @@ with patients_tab:
     patients = load_patients()
     st.subheader("Pacientes cadastrados")
     if patients:
-        st.dataframe(patients, use_container_width=True, hide_index=True)
+        st.dataframe(patients, width="stretch", hide_index=True)
     else:
         st.info("Nenhum paciente cadastrado.")
 
@@ -168,7 +168,7 @@ with media_tab:
     jobs = api_request("GET", "/jobs?limit=20") or []
     st.subheader("Jobs recentes")
     if jobs:
-        st.dataframe(jobs, use_container_width=True, hide_index=True)
+        st.dataframe(jobs, width="stretch", hide_index=True)
     else:
         st.info("Nenhum job registrado.")
 
@@ -177,7 +177,7 @@ with video_tab:
     st.write("Video geometrico sintetico → OpenCV → metricas de movimento → evento → alerta")
     st.caption("A analise mede mudancas entre quadros e nao identifica pessoas nem produz diagnostico.")
 
-    if st.button("Executar demonstracao de video sintetico", type="primary", use_container_width=True):
+    if st.button("Executar demonstracao de video sintetico", type="primary", width="stretch"):
         result = api_request("POST", "/demo/video-alert")
         if result:
             analysis = result["processing"]["job"]["result"]["analysis"]
@@ -193,7 +193,7 @@ with video_tab:
     if last_job_id:
         st.divider()
         st.write(f"Ultimo job de video enviado: `{last_job_id}`")
-        if st.button("Processar ultimo video enviado", use_container_width=True):
+        if st.button("Processar ultimo video enviado", width="stretch"):
             result = api_request("POST", f"/jobs/{last_job_id}/process")
             if result:
                 st.success("Analise concluida.")
@@ -203,7 +203,7 @@ with video_tab:
     video_events = [item for item in video_events if item.get("source") == "video_analysis"]
     st.subheader("Eventos recentes de video")
     if video_events:
-        st.dataframe(video_events, use_container_width=True, hide_index=True)
+        st.dataframe(video_events, width="stretch", hide_index=True)
     else:
         st.info("Ainda nao ha eventos de video. Execute a demonstracao ou envie um video ficticio.")
 
@@ -219,7 +219,7 @@ with audio_tab:
     last_audio_job_id = st.session_state.get("last_audio_job_id")
     if last_audio_job_id:
         st.write(f"Ultimo job de audio enviado: `{last_audio_job_id}`")
-        if st.button("Processar ultimo audio enviado", use_container_width=True):
+        if st.button("Processar ultimo audio enviado", width="stretch"):
             result = api_request("POST", f"/jobs/{last_audio_job_id}/process")
             if result:
                 st.success("Analise de audio concluida.")
@@ -231,7 +231,7 @@ with audio_tab:
     audio_events = [item for item in audio_events if item.get("source") == "audio_analysis"]
     st.subheader("Eventos recentes de audio")
     if audio_events:
-        st.dataframe(audio_events, use_container_width=True, hide_index=True)
+        st.dataframe(audio_events, width="stretch", hide_index=True)
     else:
         st.info("Ainda nao ha eventos de audio processados.")
 
@@ -296,409 +296,19 @@ with operations_tab:
     phase4_events = [item for item in phase4_events if item.get("source") in phase4_sources]
     st.subheader("Eventos recentes da Etapa 4")
     if phase4_events:
-        st.dataframe(phase4_events, use_container_width=True, hide_index=True)
+        st.dataframe(phase4_events, width="stretch", hide_index=True)
     else:
         st.info("Ainda nao ha eventos temporais, de prescricao ou de movimentacao.")
 
 
+# ============================================================
+# MULTIMODAL MONITORING DASHBOARD V2
+# ============================================================
 
-# ============================================================
-# MULTIMODAL MONITORING DASHBOARD
-# ============================================================
+from multimodal_v2 import render_multimodal_dashboard
 
 with multimodal_tab:
-    st.header("Monitoramento multimodal")
-
-    st.caption(
-        "Visao integrada de eventos sinteticos de audio, video, "
-        "sinais vitais, prescricoes e movimentacoes. "
-        "Correlacoes representam proximidade temporal, "
-        "nao causalidade ou diagnostico."
+    render_multimodal_dashboard(
+        api_request=api_request,
+        load_patients=load_patients,
     )
-
-    patients = load_patients()
-
-    if not patients:
-        st.info(
-            "Cadastre um paciente ficticio para visualizar "
-            "o monitoramento multimodal."
-        )
-
-    else:
-        patient_options = {
-            f"{p['code']} - {p['alias']}": p["id"]
-            for p in patients
-        }
-
-        selected_patient = st.selectbox(
-            "Selecione o paciente",
-            options=list(patient_options.keys()),
-            key="multimodal_patient",
-        )
-
-        patient_id = patient_options[selected_patient]
-
-        # ----------------------------------------------------
-        # DATA COLLECTION
-        # ----------------------------------------------------
-
-        events = api_request(
-            "GET",
-            "/events",
-            params={
-                "patient_id": patient_id,
-                "limit": 500,
-            },
-        )
-
-        alerts = api_request(
-            "GET",
-            "/alerts",
-            params={
-                "patient_id": patient_id,
-                "limit": 500,
-            },
-        )
-
-        measurements = api_request(
-            "GET",
-            f"/patients/{patient_id}/measurements",
-            params={"limit": 500},
-        )
-
-        if (
-            events is None
-            or alerts is None
-            or measurements is None
-        ):
-            st.error(
-                "Nao foi possivel carregar todos os dados "
-                "do paciente."
-            )
-            st.stop()
-
-        # ----------------------------------------------------
-        # SUMMARY KPIS
-        # ----------------------------------------------------
-
-        correlations = [
-            event
-            for event in events
-            if event.get("source") == "multimodal_correlation"
-        ]
-
-        source_events = [
-            event
-            for event in events
-            if event.get("source") != "multimodal_correlation"
-        ]
-
-        open_alerts = [
-            alert
-            for alert in alerts
-            if alert.get("status") == "open"
-        ]
-
-        three_source_correlations = [
-            event
-            for event in correlations
-            if event.get("payload", {}).get("source_count") == 3
-        ]
-
-        st.subheader("Resumo do paciente")
-
-        col1, col2, col3, col4, col5 = st.columns(5)
-
-        col1.metric(
-            "Eventos",
-            len(source_events),
-        )
-
-        col2.metric(
-            "Correlacoes",
-            len(correlations),
-        )
-
-        col3.metric(
-            "3 fontes",
-            len(three_source_correlations),
-        )
-
-        col4.metric(
-            "Alertas abertos",
-            len(open_alerts),
-        )
-
-        col5.metric(
-            "Medicoes",
-            len(measurements),
-        )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # SOURCE BREAKDOWN
-        # ----------------------------------------------------
-
-        st.subheader("Eventos por origem")
-
-        source_labels = {
-            "audio_analysis": "Audio",
-            "video_analysis": "Video",
-            "vital_signs": "Sinais vitais",
-            "vital_trends": "Tendencias vitais",
-            "prescription_analysis": "Prescricoes",
-            "movement_analysis": "Movimentacoes",
-        }
-
-        source_counts = {}
-
-        for event in source_events:
-            source = event.get("source", "unknown")
-            label = source_labels.get(source, source)
-
-            source_counts[label] = (
-                source_counts.get(label, 0) + 1
-            )
-
-        if source_counts:
-            chart_data = [
-                {
-                    "Origem": name,
-                    "Eventos": count,
-                }
-                for name, count in sorted(
-                    source_counts.items()
-                )
-            ]
-
-            st.bar_chart(
-                chart_data,
-                x="Origem",
-                y="Eventos",
-            )
-        else:
-            st.info(
-                "Nenhum evento identificado para este paciente."
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # CORRELATION EXECUTION
-        # ----------------------------------------------------
-
-        st.subheader("Executar correlacao multimodal")
-
-        window_minutes = st.slider(
-            "Janela temporal (minutos)",
-            min_value=1,
-            max_value=60,
-            value=5,
-            key="multimodal_window",
-        )
-
-        if st.button(
-            "Executar correlacao v2",
-            type="primary",
-            use_container_width=True,
-        ):
-            result = api_request(
-                "POST",
-                (
-                    f"/patients/{patient_id}"
-                    "/correlations/run-v2"
-                ),
-                params={
-                    "window_minutes": window_minutes
-                },
-            )
-
-            if result is not None:
-                if result:
-                    st.success(
-                        f"{len(result)} nova(s) correlacao(oes) "
-                        "criada(s)."
-                    )
-                    st.json(result)
-                else:
-                    st.info(
-                        "Nenhuma nova correlacao criada. "
-                        "Os pares existentes podem ja ter "
-                        "sido processados."
-                    )
-
-                st.button(
-                    "Atualizar painel",
-                    on_click=st.rerun,
-                    key="refresh_after_correlation",
-                )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # CORRELATION DETAILS
-        # ----------------------------------------------------
-
-        st.subheader("Correlacoes identificadas")
-
-        if correlations:
-            correlation_rows = []
-
-            for event in correlations:
-                payload = event.get("payload", {})
-
-                correlation_rows.append(
-                    {
-                        "Data": event.get("occurred_at"),
-                        "Regra": payload.get("rule_version"),
-                        "Fontes": ", ".join(
-                            payload.get("sources", [])
-                        ),
-                        "Quantidade": payload.get(
-                            "source_count",
-                            len(payload.get(
-                                "source_event_ids", []
-                            )),
-                        ),
-                        "Janela (min)": payload.get(
-                            "window_minutes"
-                        ),
-                        "ID": event.get("id"),
-                    }
-                )
-
-            st.dataframe(
-                correlation_rows,
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            event_lookup = {
-                event["id"]: event
-                for event in source_events
-            }
-
-            for index, correlation in enumerate(
-                correlations, start=1
-            ):
-                payload = correlation.get("payload", {})
-
-                with st.expander(
-                    f"Correlacao {index} - "
-                    f"{payload.get('rule_version', 'sem regra')}"
-                ):
-                    st.write(
-                        "**Tipo:**",
-                        correlation.get("event_type"),
-                    )
-
-                    st.write(
-                        "**Fontes:**",
-                        payload.get("sources", []),
-                    )
-
-                    st.write(
-                        "**Diferenca temporal:**",
-                        payload.get("time_span_seconds"),
-                        "segundos",
-                    )
-
-                    source_ids = payload.get(
-                        "source_event_ids", []
-                    )
-
-                    st.markdown("**Eventos relacionados**")
-
-                    for event_id in source_ids:
-                        linked = event_lookup.get(event_id)
-
-                        if linked:
-                            st.write(
-                                f"{linked.get('source')} - "
-                                f"{linked.get('event_type')}"
-                            )
-                            st.caption(
-                                f"Evento: {event_id}"
-                            )
-                            st.json(linked.get("payload", {}))
-                        else:
-                            st.caption(
-                                f"Evento {event_id}: "
-                                "nao encontrado na consulta atual."
-                            )
-
-                    st.markdown("**Payload de correlacao**")
-                    st.json(payload)
-
-        else:
-            st.info(
-                "Ainda nao existem correlacoes para este paciente."
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # EVENT TIMELINE
-        # ----------------------------------------------------
-
-        st.subheader("Linha do tempo de eventos")
-
-        sorted_events = sorted(
-            events,
-            key=lambda event: (
-                event.get("occurred_at") or ""
-            ),
-            reverse=True,
-        )
-
-        timeline_rows = [
-            {
-                "Data": event.get("occurred_at"),
-                "Origem": event.get("source"),
-                "Evento": event.get("event_type"),
-                "Severidade": event.get("severity"),
-                "Descricao": event.get("description"),
-            }
-            for event in sorted_events
-        ]
-
-        if timeline_rows:
-            st.dataframe(
-                timeline_rows,
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info(
-                "Nenhum evento disponivel."
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # ALERT OVERVIEW
-        # ----------------------------------------------------
-
-        st.subheader("Alertas do paciente")
-
-        if alerts:
-            st.dataframe(
-                [
-                    {
-                        "Criado em": alert.get("created_at"),
-                        "Severidade": alert.get("severity"),
-                        "Status": alert.get("status"),
-                        "Mensagem": alert.get("message"),
-                        "Evento": alert.get("event_id"),
-                    }
-                    for alert in alerts
-                ],
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info(
-                "Nenhum alerta registrado."
-            )
-

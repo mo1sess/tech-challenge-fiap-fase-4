@@ -258,3 +258,28 @@ Consulte `.env.example`. Para processar áudio fora dos testes, configure localm
 2. Ampliar a correlação multimodal e consolidar eventos relacionados em uma linha do tempo.
 3. Aprimorar alertas, métricas de qualidade, observabilidade e validação para a entrega final.
 
+
+
+### Atualizar um banco existente (Dashboard v2)
+
+`create_all()` cria tabelas novas, mas nao altera tabelas existentes. Antes de
+iniciar a API com um volume antigo, execute a migracao explicita:
+
+```sh
+docker compose stop api dashboard
+docker compose build api dashboard
+docker compose run --rm --no-deps api python -m app.db.migrate_correlation_keys
+docker compose up -d
+```
+
+O banco deve estar em execucao (`docker compose up -d db`). No PowerShell, se
+necessario, defina `$env:DOCKER_BUILDKIT = "0"` e
+`$env:COMPOSE_DOCKER_CLI_BUILD = "0"` antes do build.
+A migracao e transacional e repetivel: adiciona a coluna nullable, preenche as
+chaves deterministicas e cria o indice unico. Correlacoes historicas duplicadas
+permanecem com chave NULL; nenhum registro e removido. Execute em uma janela de
+manutencao: a migracao bloqueia escritas na tabela enquanto atualiza as chaves.
+A API recusa iniciar se a coluna ou o indice unico estiver pendente e informa o
+comando necessario no log. Nao e necessario remover volumes.
+
+O dashboard requer Streamlit >=1.52 para a API `width="stretch"`.
