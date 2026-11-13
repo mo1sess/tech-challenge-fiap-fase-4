@@ -5,6 +5,7 @@ from itertools import product
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import db
 from app.db.models import ClinicalEvent, Patient, Severity
 
 SOURCE = "multimodal_correlation"
@@ -30,6 +31,13 @@ SOURCE_NAMES = {
     "audio_analysis": "audio",
     "video_analysis": "video",
     "vital_signs": "vital",
+}
+
+SEVERITY_RANK = {
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+    "critical": 4,
 }
 
 
@@ -67,9 +75,67 @@ def load_events(
                 ClinicalEvent.source == source,
                 ClinicalEvent.event_type.in_(EVENT_TYPES[source]),
             )
-            .order_by(ClinicalEvent.occurred_at.desc())
+            .order_by(ClinicalEvent.occurred_at.desc(),ClinicalEvent.id.asc(),)
             .limit(30)
         )
+    )
+
+
+
+def deduplicate_video_jobs(
+    events: list[ClinicalEvent],
+) -> list[ClinicalEvent]:
+    """
+    Select one representative anomaly per video job.
+
+    Selection priority:
+    1. Highest severity
+    2. Most recent occurrence
+    3. Smallest event ID as deterministic tie-breaker
+
+    Original database events remain untouched.
+    """
+
+    grouped: dict[str, ClinicalEvent] = {}
+
+    for event in events:
+        job_id = (event.payload or {}).get("job_id")
+
+        # Events without a job ID remain independent.
+        key = job_id or event.id
+
+        current = grouped.get(key)
+
+        if current is None:
+            grouped[key] = event
+            continue
+
+        candidate_priority = (
+            SEVERITY_RANK.get(event.severity, 0),
+            as_utc(event.occurred_at),
+        )
+
+        current_priority = (
+            SEVERITY_RANK.get(current.severity, 0),
+            as_utc(current.occurred_at),
+        )
+
+        if (
+            candidate_priority > current_priority
+            or (
+                candidate_priority == current_priority
+                and event.id < current.id
+            )
+        ):
+            grouped[key] = event
+
+    return sorted(
+        grouped.values(),
+        key=lambda item: (
+            as_utc(item.occurred_at),
+            item.id,
+        ),
+        reverse=True,
     )
 
 
@@ -89,7 +155,7 @@ def correlate_multimodal_v2(
         raise ValueError("window_minutes must be between 1 and 60")
 
     audio = load_events(db, patient_id, "audio_analysis")
-    video = load_events(db, patient_id, "video_analysis")
+    video = deduplicate_video_jobs(load_events(db, patient_id, "video_analysis"))
     vital = load_events(db, patient_id, "vital_signs")
 
     candidates: dict[tuple[str, ...], tuple[ClinicalEvent, ...]] = {}
@@ -140,6 +206,7 @@ def correlate_multimodal_v2(
 
     for key, group in candidates.items():
         if key in existing_keys:
+
             continue
 
         ordered = tuple(
