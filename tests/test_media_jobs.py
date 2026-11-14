@@ -20,6 +20,7 @@ async def test_audio_upload_creates_queued_job(client: AsyncClient, patient: dic
     assert body["job"]["result"]["pipeline"]["components"] == [
         "azure_speech_to_text",
         "deterministic_context_rules_v2",
+        "azure_ai_language",
         "numpy_pcm_wav",
     ]
 

@@ -1,15 +1,28 @@
+# Python e empacotamento
 __pycache__/
 *.py[cod]
 *.egg-info/
-.pytest_cache/
-.coverage
-htmlcov/
+/build/
+/dist/
 .venv/
 .venv-test/
+
+# Testes e arquivos temporários
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 work/
 .testdeps*/
 .pytest-tmp*/
+/tmp/
+
+# Configuração local
 .env
+.env.*
+!.env.example
+
+# Dados gerados pela aplicação
 storage/uploads/*
 !storage/uploads/.gitkeep
 storage/*.wav
@@ -17,4 +30,7 @@ storage/*.mp3
 storage/*.m4a
 storage/*.ogg
 *.db
+*.db-journal
+*.db-shm
+*.db-wal
 

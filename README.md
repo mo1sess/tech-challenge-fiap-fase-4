@@ -18,6 +18,7 @@ Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto ofer
 - Job de vídeo rastreável nos estados `queued`, `processing`, `completed` e `failed`.
 - Vídeo geométrico sintético gerado por código para uma demonstração reproduzível.
 - Transcrição de áudio WAV sintético com Azure Speech, sem credenciais no repositório.
+- Análise de sentimento da transcrição em português com Azure AI Language, com resultados por sentença.
 - Métricas acústicas locais de duração, RMS, pico, silêncio e clipping.
 - Análise textual determinística com tratamento de negação, contexto histórico e terceiros.
 - Eventos de revisão humana para achados afirmativos, sem alerta ou diagnóstico automático.
@@ -42,6 +43,7 @@ flowchart LR
     VIDEO --> EVENT
     API --> AUDIO[Azure Speech + análise acústica e textual]
     AUDIO --> EVENT
+    AUDIO --> LANGUAGE[Azure AI Language para sentimento]
     API --> TEMPORAL[Regras temporais sintéticas]
     API --> OPERATIONS[Prescrições e movimentações fictícias]
     TEMPORAL --> EVENT
@@ -57,7 +59,7 @@ app/
   api/routes/        endpoints REST
   core/              configuração
   db/                modelos SQLAlchemy
-  modules/audio/     Azure Speech, análise acústica e regras textuais
+  modules/audio/     Azure Speech, Azure AI Language, análise acústica e regras textuais
   modules/video/     leitura de quadros e análise de movimento com OpenCV
   schemas/           validação e contratos da API
   services/          fluxos multimodais, temporais e operacionais até eventos/alertas
@@ -105,7 +107,33 @@ Pré-requisitos: Docker Desktop e Docker Compose.
 
 Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apaga os dados locais do projeto.
 
-## Demonstrações em menos de um minuto
+## Demonstrações
+
+### Áudio sintético e sentimento
+
+1. No portal Azure, obtenha a chave e a região do recurso **Speech** e o endpoint HTTPS e a chave do recurso **Language**. No `.env` local, preencha `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_LANGUAGE_ENDPOINT` e `AZURE_LANGUAGE_KEY`. O Docker Compose repassa as quatro variáveis à API. Execute `docker compose up --build` para aplicar a configuração. [Configuração oficial do Azure Language](https://learn.microsoft.com/en-us/azure/ai-services/language-service/sentiment-opinion-mining/how-to/call-api)
+2. Gere áudios curtos com voz sintetizada em português do Brasil e exporte em WAV PCM de 16 bits. Use apenas frases inventadas. O Azure Speech reconhece uma única fala por arquivo neste fluxo, então evite pausas longas entre as frases. [Reconhecimento de fala única](https://learn.microsoft.com/python/api/azure-cognitiveservices-speech/azure.cognitiveservices.speech.speechrecognizer)
+
+   Exemplos para exercitar diferentes tons:
+
+   | Tom do exemplo | Frase sintética |
+   |---|---|
+   | Positivo | Adorei o passeio. Foi maravilhoso. |
+   | Neutro | A sala fica no segundo andar. |
+   | Negativo | O passeio foi horrível. |
+   | Misto | Adorei o passeio. A comida foi péssima. |
+
+3. Cadastre um paciente fictício e envie um WAV em **Mídia e jobs**. Na aba **Análise de áudio**, escolha o **Job de áudio** e clique em **Processar áudio selecionado**. Confira a transcrição, a identificação do Azure AI Language, o sentimento geral, os três escores e a tabela de sentenças quando disponível. Os rótulos e os escores podem variar com a transcrição e com o modelo.
+4. Consulte `GET /api/v1/jobs/{id}` no Swagger. Em `result.analysis.sentiment_analysis`, confira `provider: azure_ai_language`, `language: pt-BR`, `status: succeeded`, `sentiment`, `confidence_scores` e `sentences`. Atualize o dashboard e selecione o mesmo job para conferir a leitura do resultado persistido. O exemplo negativo isolado mantém `alert_ids` vazio.
+5. Para verificar a degradação, deixe `AZURE_LANGUAGE_KEY` vazia, mantenha o Speech configurado, aplique a configuração e processe um novo job. O job deve concluir com transcrição, métricas acústicas e regras locais, e o painel deve indicar `unavailable` com motivo `missing_configuration`. Um áudio sem fala reconhecida deve exibir `skipped`. A API bloqueia o reprocessamento de jobs concluídos.
+
+O Azure AI Language classifica o tom do texto transcrito como positivo, neutro, negativo ou misto. Os escores representam a confiança do modelo na classificação, entre 0 e 1. O resultado tem finalidade educacional. Um tom negativo não indica risco clínico, dor, depressão ou emergência. Os escores não estimam a probabilidade de doença e o sentimento não gera alertas clínicos.
+
+`analysis.text_analysis` registra a identificação de termos críticos por regras locais. Por exemplo, a frase fictícia “Estou com dor” pode acionar `requires_review` nessa análise mesmo com o sentimento indisponível. As métricas de áudio ficam em `analysis.acoustic`.
+
+O adaptador usa `TextAnalyticsClient.analyze_sentiment` com um documento por chamada e solicita a desativação dos logs de entrada no serviço. Transcrições acima de 5.120 elementos de texto Unicode ou que excedam o tamanho da requisição síncrona de 1 MB ficam com `unavailable` e motivo `document_too_large`. A aplicação preserva o texto completo. Texto vazio ou fala sem reconhecimento ficam com `skipped` e dispensam a chamada. Erros de serviço, rejeições do documento e respostas inesperadas ficam com `unavailable` e um código de motivo seguro. O dashboard exibe a origem Azure somente para resultados com `succeeded`. [SDK oficial](https://learn.microsoft.com/en-us/python/api/overview/azure/ai-textanalytics-readme) · [Limites do serviço](https://learn.microsoft.com/en-us/azure/ai-services/language-service/concepts/data-limits)
+
+A Microsoft anunciou a descontinuação dessa funcionalidade do Azure Language para 31 de março de 2029. [Ciclo de vida da funcionalidade](https://learn.microsoft.com/en-us/azure/ai-services/language-service/sentiment-opinion-mining/overview?tabs=prebuilt)
 
 ### Séries temporais e operações — Etapa 4
 
@@ -208,7 +236,7 @@ O upload salva o arquivo, calcula o hash, cria `media_files` e registra um `proc
 
 O adaptador Azure Speech transcreve o WAV sintético em `pt-BR`. Em seguida, o pipeline calcula métricas acústicas e aplica regras contextuais transparentes sobre o texto. Expressões afirmativas podem criar eventos de baixa severidade para revisão humana; não são gerados diagnósticos nem alertas clínicos automáticos. Os testes substituem a chamada Azure por mocks e geram áudio sintético em memória.
 
-### Como a análise funciona
+### Como a análise de vídeo funciona
 
 O processador reduz cada quadro amostrado para uma matriz em tons de cinza e mede a proporção de pixels cuja intensidade mudou. Duas regras configuráveis criam eventos demonstrativos:
 
@@ -227,25 +255,26 @@ docker compose exec api pytest
 
 Para executar localmente com Python 3.11+:
 
-```bash
+```powershell
 python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-pytest
+python -m pytest
 ```
 
-Os testes usam SQLite temporário para permanecerem rápidos e isolados; a execução da aplicação usa PostgreSQL por padrão no Docker Compose.
+Os testes usam SQLite temporário e mocks para chamadas Azure. O Docker Compose usa PostgreSQL na execução da aplicação.
 O workflow `.github/workflows/ci.yml` repete essa validação automaticamente em cada push ou pull request para `main` usando Python 3.12.
 
 ## Variáveis de ambiente
 
-Consulte `.env.example`. Para processar áudio fora dos testes, configure localmente `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION`. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
+Consulte `.env.example`. Configure no `.env` local `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` para transcrição e `AZURE_LANGUAGE_ENDPOINT` e `AZURE_LANGUAGE_KEY` para sentimento. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
 
 ## Correspondência com o Tech Challenge
 
 | Requisito final | Estado após a Etapa 4 |
 |---|---|
 | Vídeo clínico e eventos fora do padrão | Pipeline OpenCV, métricas de movimento, eventos e alertas demonstrativos implementados com vídeo sintético |
-| Áudio, transcrição e análise textual | Azure Speech, métricas acústicas e análise textual determinística implementados para WAV sintético |
+| Áudio, transcrição e análise textual | Azure Speech, métricas acústicas, regras locais contextuais e sentimento via Azure AI Language para WAV sintético |
 | Anomalias em sinais vitais | Regras pontuais e análise temporal transparente sobre janelas de medições sintéticas |
 | Prescrições e movimentação | Detectores demonstrativos de sequência e continuidade implementados com dados fictícios |
 | Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais, vídeo, prescrições e movimentações |

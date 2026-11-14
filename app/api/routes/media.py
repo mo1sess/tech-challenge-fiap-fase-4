@@ -19,7 +19,7 @@ from app.modules.video.processor import \
     describe_pipeline as describe_video_pipeline
 from app.schemas.media import (MediaFileRead, MediaUploadResponse,
                                ProcessingJobRead, VideoJobProcessResponse)
-from app.services.audio_flow import AUDIO_DISCLAIMER, process_audio_job
+from app.services.audio_flow import AUDIO_DISCLAIMER, AudioJobConflictError, process_audio_job
 from app.services.video_flow import process_video_job
 
 router = APIRouter(tags=["media and jobs"])
@@ -112,7 +112,7 @@ async def upload_media(
         note=(
             "Video sintetico registrado. Execute o endpoint de processamento do job para analisar movimento."
             if resolved_kind == MediaKind.VIDEO.value
-            else "Audio sintetico registrado. Execute o processamento do job para transcricao WAV."
+            else "Áudio sintético registrado. Processe o job para transcrever e analisar um WAV."
         ),
     )
 
@@ -201,6 +201,8 @@ def process_job(
             )
             disclaimer = VIDEO_DISCLAIMER
 
+    except AudioJobConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (
         AudioTranscriptionError,
         VideoProcessingError,

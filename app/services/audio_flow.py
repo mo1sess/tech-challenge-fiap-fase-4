@@ -1,12 +1,14 @@
 
 from pathlib import Path
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.db.models import (Alert, ClinicalEvent, JobStatus, MediaFile, Patient,
                            ProcessingJob)
 from app.modules.audio.acoustic import AcousticAnalysisError, analyze_acoustics
+from app.modules.audio.azure_language import analyze_sentiment
 from app.modules.audio.azure_speech import (AudioTranscriptionError,
                                             transcribe_wav)
 from app.modules.audio.text_analysis import analyze_text
@@ -16,6 +18,10 @@ AUDIO_DISCLAIMER = (
     "Resultado educacional de analise de audio sintetico. "
     "Nao constitui diagnostico ou recomendacao clinica."
 )
+
+
+class AudioJobConflictError(Exception):
+    """The audio job was already claimed or completed."""
 
 
 def process_audio_job(
@@ -36,9 +42,17 @@ def process_audio_job(
             "Somente dados sinteticos sao permitidos."
         )
 
-    job.status = JobStatus.PROCESSING.value
-    job.progress = 10.0
-    job.error = None
+    claimed = db.execute(
+        update(ProcessingJob)
+        .where(
+            ProcessingJob.id == job.id,
+            ProcessingJob.status.in_([JobStatus.QUEUED.value, JobStatus.FAILED.value]),
+        )
+        .values(status=JobStatus.PROCESSING.value, progress=10.0, error=None)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise AudioJobConflictError("O job de áudio já está em processamento ou foi concluído.")
     db.commit()
 
     try:
@@ -54,8 +68,11 @@ def process_audio_job(
         acoustic = analyze_acoustics(audio_path)
 
         # 3. Analise textual contextual
-        text_analysis = analyze_text(
-            str(transcription.get("text", ""))
+        text = str(transcription.get("text") or "")
+        text_analysis = analyze_text(text)
+        sentiment_analysis = analyze_sentiment(
+            text if transcription.get("status") == "recognized" else None,
+            settings,
         )
 
         # 4. Geracao de eventos demonstrativos
@@ -78,6 +95,7 @@ def process_audio_job(
                 "transcription": transcription,
                 "acoustic": acoustic.to_dict(),
                 "text_analysis": text_analysis.to_dict(),
+                "sentiment_analysis": sentiment_analysis,
                 "disclaimer": AUDIO_DISCLAIMER,
             },
             "event_ids": [event.id for event in events],

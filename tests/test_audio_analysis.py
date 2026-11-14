@@ -1,9 +1,17 @@
 
 import io
 import wave
+from unittest.mock import MagicMock, Mock
 
 import pytest
+from azure.ai.textanalytics import AnalyzeSentimentResult, SentimentConfidenceScores
+from azure.core.exceptions import ServiceRequestError
 from httpx import AsyncClient
+from sqlalchemy.orm import Session
+
+from app.core.config import Settings
+from app.db.models import ProcessingJob
+from app.services.audio_flow import process_audio_job
 
 pytestmark = pytest.mark.anyio
 
@@ -138,6 +146,8 @@ async def test_audio_job_transcribes_and_persists_result(
 
     # One event for this signal, no automatic medical alerts.
     assert job["result"]["event_ids"] == [event["id"]]
+    assert analysis["sentiment_analysis"]["status"] == "unavailable"
+    assert analysis["sentiment_analysis"]["reason"] == "missing_configuration"
     assert job["result"]["alert_ids"] == []
     assert body["alerts"] == []
 
@@ -206,3 +216,136 @@ async def test_audio_job_transcribes_and_persists_result(
     ]
 
     assert len(matching_events) == 1
+
+
+@pytest.mark.parametrize(
+    ("transcription_status", "text", "scenario", "status", "reason", "signals"),
+    [
+        ("recognized", "O passeio foi horrível.", "negative", "succeeded", None, []),
+        ("recognized", "Estou com dor.", "offline", "unavailable", "service_error", ["pain_report"]),
+        ("recognized", "Estou com dor.", "unconfigured", "unavailable", "missing_configuration", ["pain_report"]),
+        ("recognized", " ", "negative", "skipped", "empty_text", []),
+        ("no_match", "", "negative", "skipped", "speech_not_recognized", []),
+    ],
+)
+async def test_audio_sentiment_is_persisted_independently(
+    client: AsyncClient,
+    patient: dict,
+    test_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    transcription_status: str,
+    text: str,
+    scenario: str,
+    status: str,
+    reason: str | None,
+    signals: list[str],
+) -> None:
+    transcription = {
+        "provider": "azure_speech",
+        "language": "pt-BR",
+        "status": transcription_status,
+        "text": text,
+    }
+    monkeypatch.setattr("app.services.audio_flow.transcribe_wav", Mock(return_value=transcription))
+
+    client_class = MagicMock()
+    azure_client = client_class.return_value.__enter__.return_value
+    monkeypatch.setattr("app.modules.audio.azure_language.TextAnalyticsClient", client_class)
+    if scenario != "unconfigured":
+        test_settings.azure_language_endpoint = "https://language.example.invalid"
+        test_settings.azure_language_key = "dummy-key"
+    if scenario == "offline":
+        azure_client.analyze_sentiment.side_effect = ServiceRequestError("private failure detail")
+    else:
+        azure_client.analyze_sentiment.return_value = [
+            AnalyzeSentimentResult(
+                id="0",
+                sentiment="negative",
+                confidence_scores=SentimentConfidenceScores(positive=0.01, neutral=0.04, negative=0.95),
+                sentences=[],
+                warnings=[],
+            ),
+        ]
+
+    uploaded = await client.post(
+        f"/api/v1/patients/{patient['id']}/media",
+        files={"file": ("synthetic.wav", create_synthetic_wav(), "audio/wav")},
+        data={"is_synthetic": "true"},
+    )
+    assert uploaded.status_code == 201
+    job_id = uploaded.json()["job"]["id"]
+
+    processed = await client.post(f"/api/v1/jobs/{job_id}/process")
+    assert processed.status_code == 200
+    body = processed.json()
+    assert body["job"]["status"] == "completed"
+    assert body["job"]["progress"] == 100.0
+    assert body["job"]["error"] is None
+    assert len(body["events"]) == len(signals)
+    assert body["job"]["result"]["alert_ids"] == []
+    assert body["alerts"] == []
+
+    analysis = body["job"]["result"]["analysis"]
+    assert analysis["transcription"] == transcription
+    assert analysis["acoustic"]["duration_seconds"] == 1.0
+    assert analysis["text_analysis"]["matched_signals"] == signals
+    assert analysis["text_analysis"]["requires_review"] == bool(signals)
+    sentiment = analysis["sentiment_analysis"]
+    assert sentiment["status"] == status
+    assert sentiment.get("reason") == reason
+    if status == "succeeded":
+        assert sentiment["sentiment"] == "negative"
+        assert sentiment["confidence_scores"]["negative"] == 0.95
+        alerts = await client.get(f"/api/v1/alerts?patient_id={patient['id']}")
+        assert alerts.status_code == 200
+        assert alerts.json() == []
+    else:
+        assert "sentiment" not in sentiment
+    if status == "succeeded" or reason == "service_error":
+        azure_client.analyze_sentiment.assert_called_once_with(
+            [text], language="pt-BR", disable_service_logs=True
+        )
+    else:
+        client_class.assert_not_called()
+    assert "private failure detail" not in processed.text
+
+    persisted = await client.get(f"/api/v1/jobs/{job_id}")
+    assert persisted.status_code == 200
+    assert persisted.json()["job_type"] == "audio_analysis"
+    assert persisted.json()["result"]["analysis"] == analysis
+
+    repeated = await client.post(f"/api/v1/jobs/{job_id}/process")
+    assert repeated.status_code == 409
+
+
+async def test_audio_job_rejects_a_claim_based_on_stale_status(
+    client: AsyncClient,
+    patient: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def finish_in_another_session(db, job, media, patient, settings):
+        with Session(db.get_bind()) as concurrent_db:
+            concurrent_job = concurrent_db.get(ProcessingJob, job.id)
+            concurrent_job.status = "completed"
+            concurrent_job.result = {"analysis": {"sentiment_analysis": {"status": "succeeded"}}}
+            concurrent_db.commit()
+        return process_audio_job(db, job, media, patient, settings)
+
+    transcribe = Mock()
+    monkeypatch.setattr("app.services.audio_flow.transcribe_wav", transcribe)
+    monkeypatch.setattr("app.api.routes.media.process_audio_job", finish_in_another_session)
+    uploaded = await client.post(
+        f"/api/v1/patients/{patient['id']}/media",
+        files={"file": ("synthetic.wav", create_synthetic_wav(), "audio/wav")},
+        data={"is_synthetic": "true"},
+    )
+    assert uploaded.status_code == 201
+    job_id = uploaded.json()["job"]["id"]
+
+    rejected = await client.post(f"/api/v1/jobs/{job_id}/process")
+
+    assert rejected.status_code == 409
+    transcribe.assert_not_called()
+    persisted = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert persisted["status"] == "completed"
+    assert persisted["result"]["analysis"]["sentiment_analysis"]["status"] == "succeeded"

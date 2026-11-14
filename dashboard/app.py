@@ -8,12 +8,28 @@ import streamlit as st
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 API_V1 = f"{API_BASE_URL}/api/v1"
 
+SENTIMENT_LABELS = {
+    "positive": "Positivo",
+    "neutral": "Neutro",
+    "negative": "Negativo",
+    "mixed": "Misto",
+}
+SENTIMENT_REASONS = {
+    "speech_not_recognized": "Nenhuma fala reconhecida na transcrição.",
+    "empty_text": "A transcrição está vazia.",
+    "missing_configuration": "Configure o endpoint e a chave do Azure AI Language na API.",
+    "document_too_large": "A transcrição excede o limite do Azure AI Language.",
+    "service_error": "A chamada ao Azure AI Language falhou.",
+    "document_error": "O Azure AI Language rejeitou o documento.",
+    "invalid_response": "O Azure AI Language retornou uma resposta inesperada.",
+}
+
 st.set_page_config(page_title="MedGuard AI", page_icon="🛡️", layout="wide")
 
 
-def api_request(method: str, path: str, **kwargs: Any) -> Any:
+def api_request(method: str, path: str, *, timeout: int = 20, **kwargs: Any) -> Any:
     try:
-        response = requests.request(method, f"{API_V1}{path}", timeout=20, **kwargs)
+        response = requests.request(method, f"{API_V1}{path}", timeout=timeout, **kwargs)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as exc:
@@ -24,6 +40,49 @@ def api_request(method: str, path: str, **kwargs: Any) -> Any:
 
 def load_patients() -> list[dict[str, Any]]:
     return api_request("GET", "/patients") or []
+
+
+def show_audio_analysis(analysis: dict[str, Any]) -> None:
+    st.markdown("**Transcrição**")
+    st.text(analysis["transcription"].get("text") or "Sem texto reconhecido.")
+
+    st.markdown("**Análise de sentimento**")
+    sentiment = analysis.get("sentiment_analysis")
+    if not sentiment:
+        st.info("Este job foi processado sem um resultado de sentimento registrado.")
+        return
+
+    st.caption(sentiment["disclaimer"])
+    status = sentiment["status"]
+    reason = SENTIMENT_REASONS.get(sentiment.get("reason"), "")
+    if status == "skipped":
+        st.info(f"Análise não executada (skipped). {reason}")
+    elif status == "unavailable":
+        st.warning(f"Análise indisponível (unavailable). {reason}")
+    elif status == "succeeded":
+        st.caption(f"Resultado do Azure AI Language · {sentiment['language']}")
+        label = sentiment["sentiment"]
+        st.metric("Sentimento geral", SENTIMENT_LABELS.get(label, label))
+
+        st.markdown("**Confiança do modelo**")
+        for column, key in zip(st.columns(3), ("positive", "neutral", "negative")):
+            column.metric(SENTIMENT_LABELS[key], f"{sentiment['confidence_scores'][key]:.2f}")
+
+        if sentiment["sentences"]:
+            st.markdown("**Sentimento por sentença**")
+            st.dataframe(
+                [
+                    {
+                        "Sentença": sentence["text"],
+                        "Sentimento": SENTIMENT_LABELS.get(sentence["sentiment"], sentence["sentiment"]),
+                        "Positivo": sentence["confidence_scores"]["positive"],
+                        "Neutro": sentence["confidence_scores"]["neutral"],
+                        "Negativo": sentence["confidence_scores"]["negative"],
+                    }
+                    for sentence in sentiment["sentences"]
+                ],
+                hide_index=True,
+            )
 
 
 st.title("🛡️ MedGuard AI")
@@ -132,7 +191,7 @@ with vitals_tab:
 
 with media_tab:
     st.subheader("Registrar audio ou video ficticio")
-    st.info("Videos e audios WAV sinteticos podem ser processados nesta etapa.")
+    st.info("Para processar áudio, envie um WAV PCM de 16 bits.")
     patients = load_patients()
     if not patients:
         st.info("Cadastre um paciente ficticio antes de enviar midia.")
@@ -153,7 +212,7 @@ with media_tab:
                     if result["media"]["kind"] == "video":
                         st.session_state["last_video_job_id"] = result["job"]["id"]
                     else:
-                        st.session_state["last_audio_job_id"] = result["job"]["id"]
+                        st.session_state["audio_job_id"] = result["job"]["id"]
                     st.json(result)
 
     jobs = api_request("GET", "/jobs?limit=20") or []
@@ -207,16 +266,37 @@ with audio_tab:
         "exigem revisao humana e nao geram diagnostico automatico."
     )
 
-    last_audio_job_id = st.session_state.get("last_audio_job_id")
-    if last_audio_job_id:
-        st.write(f"Ultimo job de audio enviado: `{last_audio_job_id}`")
-        if st.button("Processar ultimo audio enviado", use_container_width=True):
-            result = api_request("POST", f"/jobs/{last_audio_job_id}/process")
+    jobs = api_request("GET", "/jobs?limit=20") or []
+    audio_jobs = {job["id"]: job for job in jobs if job["job_type"] == "audio_analysis"}
+    if audio_jobs:
+        audio_job_id = st.selectbox(
+            "Job de áudio",
+            list(audio_jobs),
+            key="audio_job_id",
+            format_func=lambda job_id: f"{job_id} ({audio_jobs[job_id]['status']})",
+        )
+        audio_job = audio_jobs[audio_job_id]
+        if st.button(
+            "Processar áudio selecionado",
+            disabled=audio_job["status"] not in {"queued", "failed"},
+        ):
+            with st.spinner("Processando áudio fictício..."):
+                result = api_request("POST", f"/jobs/{audio_job_id}/process", timeout=60)
             if result:
-                st.success("Analise de audio concluida.")
-                st.json(result)
+                st.rerun()
+            refreshed_job = api_request("GET", f"/jobs/{audio_job_id}")
+            if refreshed_job:
+                audio_job = refreshed_job
+
+        if audio_job["status"] == "failed" and audio_job.get("error"):
+            st.error(audio_job["error"])
+        if audio_job["status"] == "completed":
+            show_audio_analysis(audio_job["result"]["analysis"])
+            with st.expander("Detalhes do job"):
+                st.json(audio_job["result"])
     else:
-        st.info("Envie um WAV sintetico na aba Midia e jobs para iniciar a analise.")
+        st.info("Envie um áudio fictício para criar um job.")
+
 
     audio_events = api_request("GET", "/events?limit=50") or []
     audio_events = [item for item in audio_events if item.get("source") == "audio_analysis"]

@@ -14,14 +14,20 @@ def anyio_backend() -> str:
 
 
 @pytest.fixture
-async def client(tmp_path) -> AsyncGenerator[AsyncClient, None]:
-    settings = Settings(
+def test_settings(tmp_path) -> Settings:
+    return Settings(
         app_env="test",
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         storage_dir=tmp_path / "uploads",
         cors_origins=["http://testserver"],
+        azure_language_endpoint=None,
+        azure_language_key=None,
     )
-    app = create_app(settings)
+
+
+@pytest.fixture
+async def client(test_settings: Settings) -> AsyncGenerator[AsyncClient, None]:
+    app = create_app(test_settings)
     Base.metadata.create_all(bind=app.state.engine)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as test_client:
