@@ -4,6 +4,7 @@ from typing import Literal
 
 from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
                      Request, UploadFile)
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -121,24 +122,41 @@ async def upload_media(
 def list_media(
     patient_id: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[MediaFile]:
     statement = select(MediaFile)
     if patient_id:
         statement = statement.where(MediaFile.patient_id == patient_id)
-    return list(db.scalars(statement.order_by(MediaFile.created_at.desc()).limit(limit)))
+    statement = statement.order_by(MediaFile.created_at.desc(), MediaFile.id.desc())
+    return list(db.scalars(statement.offset(offset).limit(limit)))
+
+
+@router.get("/media/{media_id}/content", response_class=FileResponse)
+def get_media_content(media_id: str, request: Request, db: Session = Depends(get_db)) -> FileResponse:
+    media = db.get(MediaFile, media_id)
+    if media is None or not media.is_synthetic:
+        raise HTTPException(status_code=404, detail="Media not found")
+    patient = db.get(Patient, media.patient_id)
+    path = Path(media.storage_path).resolve()
+    storage_dir = Path(request.app.state.settings.storage_dir).resolve()
+    if patient is None or not patient.is_synthetic or not path.is_relative_to(storage_dir) or not path.is_file():
+        raise HTTPException(status_code=404, detail="Media not found")
+    return FileResponse(path, filename=media.original_filename, media_type="application/octet-stream")
 
 
 @router.get("/jobs", response_model=list[ProcessingJobRead])
 def list_jobs(
     patient_id: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[ProcessingJob]:
     statement = select(ProcessingJob)
     if patient_id:
         statement = statement.where(ProcessingJob.patient_id == patient_id)
-    return list(db.scalars(statement.order_by(ProcessingJob.created_at.desc()).limit(limit)))
+    statement = statement.order_by(ProcessingJob.created_at.desc(), ProcessingJob.id.desc())
+    return list(db.scalars(statement.offset(offset).limit(limit)))
 
 
 @router.get("/jobs/{job_id}", response_model=ProcessingJobRead)

@@ -24,6 +24,18 @@ async def test_audio_upload_creates_queued_job(client: AsyncClient, patient: dic
         "azure_text_analytics_for_health",
         "numpy_pcm_wav",
     ]
+    for endpoint, record in (("media", body["media"]), ("jobs", body["job"])):
+        params = {"patient_id": patient["id"], "limit": 1}
+        page = await client.get(f"/api/v1/{endpoint}", params=params)
+        assert page.status_code == 200
+        assert [item["id"] for item in page.json()] == [record["id"]]
+        next_page = await client.get(f"/api/v1/{endpoint}", params={**params, "offset": 1})
+        assert next_page.json() == []
+
+    content = await client.get(f"/api/v1/media/{body['media']['id']}/content")
+    assert content.status_code == 200
+    assert content.content == synthetic_wav
+    assert "consulta_ficticia.wav" in content.headers["content-disposition"]
 
 
 async def test_rejects_audio_format_not_supported_by_processor(

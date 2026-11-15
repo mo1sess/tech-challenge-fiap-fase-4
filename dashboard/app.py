@@ -1,4 +1,7 @@
 import os
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -7,6 +10,14 @@ import streamlit as st
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 API_V1 = f"{API_BASE_URL}/api/v1"
+
+JOB_LABELS = {
+    "queued": "Na fila",
+    "processing": "Em processamento",
+    "completed": "Concluída",
+    "failed": "Falhou",
+}
+MEDIA_LABELS = {"audio": "Áudio", "video": "Vídeo"}
 
 SENTIMENT_LABELS = {
     "positive": "Positivo",
@@ -37,19 +48,29 @@ CLINICAL_MENTION_REASONS = {
 st.set_page_config(page_title="MedGuard AI", page_icon="🛡️", layout="wide")
 
 
-def api_request(method: str, path: str, *, timeout: int = 20, **kwargs: Any) -> Any:
+def api_request(
+    method: str, path: str, *, timeout: int = 20, binary: bool = False, **kwargs: Any
+) -> Any:
     try:
         response = requests.request(method, f"{API_V1}{path}", timeout=timeout, **kwargs)
         response.raise_for_status()
-        return response.json()
+        return response.content if binary else response.json()
     except requests.RequestException as exc:
         detail = getattr(exc.response, "text", "") if getattr(exc, "response", None) is not None else ""
-        st.error(f"Nao foi possivel acessar a API. {detail or exc}")
+        st.error(f"Não foi possível acessar a API. {detail or exc}")
         return None
 
 
-def load_patients() -> list[dict[str, Any]]:
-    return api_request("GET", "/patients") or []
+def load_records(path: str, **filters: Any) -> list[dict[str, Any]]:
+    records = []
+    page_size = 100
+    while True:
+        page = api_request("GET", path, params={**filters, "limit": page_size, "offset": len(records)})
+        if page is None:
+            return records
+        records.extend(page)
+        if len(page) < page_size:
+            return records
 
 
 def show_clinical_mentions(result: dict[str, Any] | None) -> None:
@@ -130,289 +151,472 @@ def show_audio_analysis(analysis: dict[str, Any]) -> None:
             )
 
 
-st.title("🛡️ MedGuard AI")
-st.caption("Tech Challenge FIAP - Fase 4 | Etapa 4: monitoramento sintetico multimodal")
-st.warning(
-    "Ambiente educacional. Use apenas pacientes, midias e medicoes ficticias. "
-    "Os limites da demonstracao nao sao referencia clinica e o sistema nao realiza diagnosticos."
-)
+def show_video_analysis(analysis: dict[str, Any]) -> None:
+    st.caption(analysis.get("disclaimer", "Análise educacional de movimento em vídeo sintético."))
+    frames, average, peak = st.columns(3)
+    frames.metric("Quadros analisados", analysis.get("analyzed_frame_count", "—"))
+    average.metric("Movimento médio", format_measure(analysis.get("mean_motion_percent"), "%"))
+    peak.metric("Pico de movimento", format_measure(analysis.get("peak_motion_percent"), "%"))
+    for anomaly in analysis.get("anomalies", []):
+        st.warning(f"{anomaly['title']} · {anomaly['description']}")
 
-overview_tab, patients_tab, vitals_tab, video_tab, audio_tab, operations_tab, media_tab = st.tabs(
-    [
-        "Visao geral",
-        "Pacientes ficticios",
-        "Sinais vitais",
-        "Analise de video",
-        "Analise de audio",
-        "Prescricoes e movimentacoes",
-        "Midia e jobs",
+
+def format_measure(value: float | None, unit: str = "") -> str:
+    return f"{value:g} {unit}".strip() if value is not None else "—"
+
+
+def format_date(value: str | None) -> str:
+    if not value:
+        return "—"
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return value
+
+
+def register_patient() -> None:
+    with st.expander("Cadastrar paciente"):
+        with st.form("patient_form", clear_on_submit=True):
+            columns = st.columns([2, 3, 2])
+            code = columns[0].text_input("Código", placeholder="MG-001")
+            alias = columns[1].text_input("Nome fictício", placeholder="Paciente Exemplo")
+            birth_year = columns[2].number_input("Ano de nascimento", value=None, min_value=1900, max_value=2100)
+            notes = st.text_area("Observações", max_chars=1000)
+            if st.form_submit_button("Cadastrar", type="primary"):
+                created = api_request(
+                    "POST",
+                    "/patients",
+                    json={
+                        "code": code.strip(),
+                        "alias": alias.strip(),
+                        "birth_year": birth_year,
+                        "notes": notes.strip() or None,
+                        "is_synthetic": True,
+                    },
+                )
+                if created:
+                    st.session_state["patient_id"] = created["id"]
+                    st.session_state["notice"] = f"Paciente {created['code']} cadastrado."
+                    st.rerun()
+
+
+def show_registry() -> None:
+    st.title("Pacientes")
+    st.caption("Pesquise pelo nome fictício ou código para abrir o prontuário.")
+    register_patient()
+
+    query = st.text_input("Buscar paciente", placeholder="Nome ou código").strip().casefold()
+    patients = load_records("/patients")
+    matches = [
+        patient for patient in patients
+        if query in f"{patient['code']} {patient['alias']}".casefold()
     ]
-)
+    if not matches:
+        st.info("Nenhum paciente encontrado." if query else "Nenhum paciente cadastrado.")
+        return
 
-with overview_tab:
-    st.subheader("Fluxo demonstravel")
-    st.write("Paciente sintetico → medicao anomala → evento normalizado → alerta aberto")
-    if st.button("Executar demonstracao de alerta", type="primary", use_container_width=True):
-        result = api_request("POST", "/demo/vital-alert")
-        if result:
-            st.success("Fluxo executado e persistido.")
-            cols = st.columns(3)
-            cols[0].metric("Paciente", result["patient"]["code"])
-            cols[1].metric("Eventos", len(result["result"]["events"]))
-            cols[2].metric("Alertas", len(result["result"]["alerts"]))
+    st.dataframe(
+        [
+            {
+                "Código": patient["code"],
+                "Paciente": patient["alias"],
+                "Nascimento": patient.get("birth_year"),
+                "Cadastro": format_date(patient.get("created_at")),
+            }
+            for patient in matches
+        ],
+        hide_index=True,
+    )
+    options = {patient["id"]: patient for patient in matches}
+    patient_id = st.selectbox(
+        "Selecionar paciente",
+        list(options),
+        key="registry_patient",
+        format_func=lambda key: f"{options[key]['alias']} · {options[key]['code']}",
+    )
+    if st.button("Abrir prontuário", type="primary"):
+        st.session_state["patient_id"] = patient_id
+        st.rerun()
+
+
+def show_media_file(media: dict[str, Any]) -> None:
+    with st.expander("Reproduzir ou baixar arquivo"):
+        if st.button("Carregar arquivo", key=f"load_file_{media['id']}"):
+            content = api_request("GET", f"/media/{media['id']}/content", binary=True)
+            if content is not None:
+                st.session_state["media_preview"] = (media["id"], content)
+
+        preview = st.session_state.get("media_preview")
+        if not preview or preview[0] != media["id"]:
+            return
+        filename = media["original_filename"]
+        if media["kind"] == "audio":
+            st.audio(preview[1], format="audio/wav")
+        elif Path(filename).suffix.lower() == ".mp4":
+            st.video(preview[1], format="video/mp4")
+        else:
+            st.caption("Baixe o arquivo para reproduzir este formato.")
+        st.download_button("Baixar arquivo", preview[1], file_name=filename)
+
+
+def show_job(job: dict[str, Any]) -> None:
+    status = job["status"]
+    st.markdown(f"**{JOB_LABELS.get(status, status)}**")
+    st.caption(f"Job {job['id']} · {format_date(job.get('updated_at'))}")
+    if status in {"queued", "failed"}:
+        label = "Tentar novamente" if status == "failed" else "Processar mídia"
+        if job.get("error"):
+            st.error(job["error"])
+        if st.button(label, type="primary", key=f"process_{job['id']}"):
+            with st.spinner("Processando mídia sintética..."):
+                result = api_request("POST", f"/jobs/{job['id']}/process", timeout=90)
+            if result:
+                st.session_state["notice"] = "Análise registrada no prontuário."
+                st.rerun()
+    elif status == "processing":
+        st.progress(min(max(float(job.get("progress") or 0) / 100, 0), 1))
+    elif status == "completed":
+        result = job.get("result") or {}
+        analysis = result.get("analysis") or {}
+        if job["job_type"] == "audio_analysis" and analysis.get("transcription"):
+            show_audio_analysis(analysis)
+            acoustic = analysis.get("acoustic") or {}
+            if acoustic:
+                duration, rms, silence = st.columns(3)
+                duration.metric("Duração", format_measure(acoustic.get("duration_seconds"), "s"))
+                rms.metric("Energia RMS", format_measure(acoustic.get("rms")))
+                ratio = acoustic.get("silence_ratio")
+                silence.metric("Silêncio", format_measure(round(ratio * 100, 1) if ratio is not None else None, "%"))
+            local_analysis = analysis.get("text_analysis") or {}
+            if local_analysis:
+                expressions = ", ".join(local_analysis.get("matched_expressions", []))
+                st.markdown("**Termos encontrados pelas regras locais**")
+                st.write(expressions or "Nenhum termo encontrado.")
+        elif job["job_type"] == "video_analysis" and analysis:
+            show_video_analysis(analysis)
+        with st.expander("Resultado completo da análise"):
             st.json(result)
 
-    alerts = api_request("GET", "/alerts?limit=20") or []
-    st.subheader("Alertas recentes")
-    if alerts:
-        st.dataframe(alerts, use_container_width=True, hide_index=True)
-    else:
-        st.info("Ainda nao ha alertas. Execute a demonstracao acima.")
 
-with patients_tab:
-    st.subheader("Cadastrar paciente ficticio")
-    with st.form("patient_form", clear_on_submit=True):
-        code = st.text_input("Codigo sintetico", value="MG-TESTE-001")
-        alias = st.text_input("Alias", value="Paciente Ficticio Beta")
-        birth_year = st.number_input("Ano de nascimento ficticio", min_value=1900, max_value=2100, value=1990)
-        notes = st.text_area("Observacoes", value="Registro educacional sem dados pessoais reais.")
-        submitted = st.form_submit_button("Cadastrar")
-        if submitted:
-            created = api_request(
-                "POST",
-                "/patients",
-                json={
-                    "code": code,
-                    "alias": alias,
-                    "birth_year": int(birth_year),
-                    "notes": notes,
-                    "is_synthetic": True,
-                },
+def show_media(patient_id: str) -> None:
+    with st.expander("Adicionar áudio ou vídeo"):
+        st.caption("Para áudio, use WAV PCM de 16 bits. Envie somente mídias fictícias.")
+        with st.form(f"upload_{patient_id}", clear_on_submit=True):
+            uploaded = st.file_uploader("Arquivo sintético", type=["wav", "mp4", "mov", "avi", "mkv"])
+            if st.form_submit_button("Registrar mídia"):
+                if uploaded is None:
+                    st.warning("Selecione um arquivo para registrar.")
+                else:
+                    result = api_request(
+                        "POST",
+                        f"/patients/{patient_id}/media",
+                        files={"file": (uploaded.name, uploaded.getvalue(), uploaded.type)},
+                        data={"is_synthetic": "true"},
+                    )
+                    if result:
+                        st.session_state["selected_media"] = result["media"]["id"]
+                        st.session_state["notice"] = "Mídia registrada e disponível para análise."
+                        st.rerun()
+
+    files = load_records("/media", patient_id=patient_id)
+    jobs = load_records("/jobs", patient_id=patient_id)
+    if not files:
+        st.info("Este paciente ainda não tem mídias registradas.")
+        return
+
+    jobs_by_file = defaultdict(list)
+    for job in jobs:
+        jobs_by_file[job["media_file_id"]].append(job)
+
+    st.dataframe(
+        [
+            {
+                "Arquivo": media["original_filename"],
+                "Tipo": MEDIA_LABELS.get(media["kind"], media["kind"]),
+                "Enviado em": format_date(media.get("created_at")),
+                "Análises": len(jobs_by_file[media["id"]]),
+                "Último status": JOB_LABELS.get(jobs_by_file[media["id"]][0]["status"], "—")
+                if jobs_by_file[media["id"]] else "—",
+            }
+            for media in files
+        ],
+        hide_index=True,
+    )
+    options = {media["id"]: media for media in files}
+    selected_id = st.session_state.pop("selected_media", None)
+    if selected_id in options:
+        st.session_state[f"media_{patient_id}"] = selected_id
+    media_id = st.selectbox(
+        "Arquivo no prontuário",
+        list(options),
+        key=f"media_{patient_id}",
+        format_func=lambda key: f"{options[key]['original_filename']} · {format_date(options[key].get('created_at'))} · {key[:8]}",
+    )
+    with st.container(border=True):
+        st.subheader(options[media_id]["original_filename"])
+        show_media_file(options[media_id])
+        media_jobs = jobs_by_file[media_id]
+        if not media_jobs:
+            st.info("Nenhum job associado a este arquivo.")
+        elif len(media_jobs) == 1:
+            show_job(media_jobs[0])
+        else:
+            media_jobs_by_id = {job["id"]: job for job in media_jobs}
+            job_id = st.selectbox(
+                "Análises do arquivo",
+                list(media_jobs_by_id),
+                key=f"job_{media_id}",
+                format_func=lambda key: f"{format_date(media_jobs_by_id[key].get('created_at'))} · "
+                f"{JOB_LABELS.get(media_jobs_by_id[key]['status'], media_jobs_by_id[key]['status'])} · {key[:8]}",
             )
-            if created:
-                st.success(f"Paciente {created['code']} cadastrado.")
+            show_job(media_jobs_by_id[job_id])
 
-    patients = load_patients()
-    st.subheader("Pacientes cadastrados")
-    if patients:
-        st.dataframe(patients, use_container_width=True, hide_index=True)
-    else:
-        st.info("Nenhum paciente cadastrado.")
 
-with vitals_tab:
-    st.subheader("Registrar medicao sintetica")
-    patients = load_patients()
-    if not patients:
-        st.info("Cadastre um paciente ficticio antes de registrar medicoes.")
-    else:
-        options = {f"{item['code']} - {item['alias']}": item["id"] for item in patients}
-        selected = st.selectbox("Paciente", list(options))
-        with st.form("vitals_form"):
+def show_vitals(patient_id: str) -> None:
+    with st.expander("Registrar medição"):
+        with st.form(f"vitals_{patient_id}"):
             cols = st.columns(4)
             heart_rate = cols[0].number_input("Batimentos (bpm)", min_value=0.0, max_value=300.0, value=82.0)
-            spo2 = cols[1].number_input("SpO2 (%)", min_value=0.0, max_value=100.0, value=97.0)
-            systolic = cols[2].number_input("Pressao sistolica", min_value=0.0, max_value=350.0, value=120.0)
-            diastolic = cols[3].number_input("Pressao diastolica", min_value=0.0, max_value=250.0, value=80.0)
-            submitted = st.form_submit_button("Registrar e avaliar")
-            if submitted:
+            spo2 = cols[1].number_input("SpO₂ (%)", min_value=0.0, max_value=100.0, value=97.0)
+            systolic = cols[2].number_input("Pressão sistólica", min_value=0.0, max_value=350.0, value=120.0)
+            diastolic = cols[3].number_input("Pressão diastólica", min_value=0.0, max_value=250.0, value=80.0)
+            if st.form_submit_button("Registrar e avaliar", type="primary"):
                 result = api_request(
                     "POST",
-                    f"/patients/{options[selected]}/measurements",
+                    f"/patients/{patient_id}/measurements",
                     json={
-                        "heart_rate_bpm": heart_rate,
-                        "spo2_percent": spo2,
-                        "systolic_mmhg": systolic,
-                        "diastolic_mmhg": diastolic,
-                        "source": "streamlit_dashboard",
-                        "is_synthetic": True,
+                        "heart_rate_bpm": heart_rate, "spo2_percent": spo2,
+                        "systolic_mmhg": systolic, "diastolic_mmhg": diastolic,
+                        "source": "streamlit_dashboard", "is_synthetic": True,
                     },
                 )
                 if result:
                     if result["alerts"]:
-                        st.error("A medicao gerou um alerta demonstrativo.")
+                        st.warning("A medição gerou alerta demonstrativo.")
                     else:
-                        st.success("Medicao registrada sem evento pelas regras demonstrativas.")
-                    st.json(result)
+                        st.success("Medição registrada.")
+                    st.json(result, expanded=False)
 
-with media_tab:
-    st.subheader("Registrar audio ou video ficticio")
-    st.info("Para processar áudio, envie um WAV PCM de 16 bits.")
-    patients = load_patients()
-    if not patients:
-        st.info("Cadastre um paciente ficticio antes de enviar midia.")
-    else:
-        options = {f"{item['code']} - {item['alias']}": item["id"] for item in patients}
-        selected = st.selectbox("Paciente da midia", list(options), key="media_patient")
-        uploaded = st.file_uploader("Arquivo ficticio", type=["wav", "mp4", "mov", "avi", "mkv"])
-        if st.button("Registrar midia", disabled=uploaded is None):
-            if uploaded is not None:
-                result = api_request(
-                    "POST",
-                    f"/patients/{options[selected]}/media",
-                    files={"file": (uploaded.name, uploaded.getvalue(), uploaded.type)},
-                    data={"is_synthetic": "true"},
-                )
-                if result:
-                    st.success("Midia e job registrados.")
-                    if result["media"]["kind"] == "video":
-                        st.session_state["last_video_job_id"] = result["job"]["id"]
-                    else:
-                        st.session_state["audio_job_id"] = result["job"]["id"]
-                    st.json(result)
-
-    jobs = api_request("GET", "/jobs?limit=20") or []
-    st.subheader("Jobs recentes")
-    if jobs:
-        st.dataframe(jobs, use_container_width=True, hide_index=True)
-    else:
-        st.info("Nenhum job registrado.")
-
-with video_tab:
-    st.subheader("Fluxo demonstravel de video")
-    st.write("Video geometrico sintetico → OpenCV → metricas de movimento → evento → alerta")
-    st.caption("A analise mede mudancas entre quadros e nao identifica pessoas nem produz diagnostico.")
-
-    if st.button("Executar demonstracao de video sintetico", type="primary", use_container_width=True):
-        result = api_request("POST", "/demo/video-alert")
-        if result:
-            analysis = result["processing"]["job"]["result"]["analysis"]
-            st.success("Video sintetico criado, processado e persistido.")
-            cols = st.columns(4)
-            cols[0].metric("Quadros analisados", analysis["analyzed_frame_count"])
-            cols[1].metric("Movimento medio", f"{analysis['mean_motion_percent']:.3f}%")
-            cols[2].metric("Eventos", len(result["processing"]["events"]))
-            cols[3].metric("Alertas", len(result["processing"]["alerts"]))
-            st.json(result)
-
-    last_job_id = st.session_state.get("last_video_job_id")
-    if last_job_id:
-        st.divider()
-        st.write(f"Ultimo job de video enviado: `{last_job_id}`")
-        if st.button("Processar ultimo video enviado", use_container_width=True):
-            result = api_request("POST", f"/jobs/{last_job_id}/process")
-            if result:
-                st.success("Analise concluida.")
-                st.json(result)
-
-    video_events = api_request("GET", "/events?limit=50") or []
-    video_events = [item for item in video_events if item.get("source") == "video_analysis"]
-    st.subheader("Eventos recentes de video")
-    if video_events:
-        st.dataframe(video_events, use_container_width=True, hide_index=True)
-    else:
-        st.info("Ainda nao ha eventos de video. Execute a demonstracao ou envie um video ficticio.")
-
-
-with audio_tab:
-    st.subheader("Fluxo de audio sintetico")
-    st.write("Audio WAV sintetico → Azure Speech → metricas acusticas → analise textual → evento de revisao")
-    st.caption(
-        "A transcricao exige credenciais Azure configuradas. Os achados sao educacionais, "
-        "exigem revisao humana e nao geram diagnostico automatico."
-    )
-
-    jobs = api_request("GET", "/jobs?limit=20") or []
-    audio_jobs = {job["id"]: job for job in jobs if job["job_type"] == "audio_analysis"}
-    if audio_jobs:
-        audio_job_id = st.selectbox(
-            "Job de áudio",
-            list(audio_jobs),
-            key="audio_job_id",
-            format_func=lambda job_id: f"{job_id} ({audio_jobs[job_id]['status']})",
+    measurements = api_request("GET", f"/patients/{patient_id}/measurements") or []
+    if measurements:
+        latest = measurements[0]
+        pulse, oxygen, pressure = st.columns(3)
+        pulse.metric("Últimos batimentos", format_measure(latest["heart_rate_bpm"], "bpm"))
+        oxygen.metric("Última SpO₂", format_measure(latest["spo2_percent"], "%"))
+        pressure.metric(
+            "Última pressão",
+            f"{format_measure(latest['systolic_mmhg'])}/{format_measure(latest['diastolic_mmhg'])} mmHg",
         )
-        audio_job = audio_jobs[audio_job_id]
-        if st.button(
-            "Processar áudio selecionado",
-            disabled=audio_job["status"] not in {"queued", "failed"},
-        ):
-            with st.spinner("Processando áudio fictício..."):
-                result = api_request("POST", f"/jobs/{audio_job_id}/process", timeout=90)
-            if result:
-                st.rerun()
-            refreshed_job = api_request("GET", f"/jobs/{audio_job_id}")
-            if refreshed_job:
-                audio_job = refreshed_job
-
-        if audio_job["status"] == "failed" and audio_job.get("error"):
-            st.error(audio_job["error"])
-        if audio_job["status"] == "completed":
-            show_audio_analysis(audio_job["result"]["analysis"])
-            with st.expander("Detalhes do job"):
-                st.json(audio_job["result"])
+        st.dataframe(
+            [
+                {
+                    "Data": format_date(item["measured_at"]), "Batimentos (bpm)": item["heart_rate_bpm"],
+                    "SpO₂ (%)": item["spo2_percent"], "Sistólica (mmHg)": item["systolic_mmhg"],
+                    "Diastólica (mmHg)": item["diastolic_mmhg"],
+                }
+                for item in measurements
+            ],
+            hide_index=True,
+        )
     else:
-        st.info("Envie um áudio fictício para criar um job.")
+        st.info("Nenhuma medição registrada.")
 
 
-    audio_events = api_request("GET", "/events?limit=50") or []
-    audio_events = [item for item in audio_events if item.get("source") == "audio_analysis"]
-    st.subheader("Eventos recentes de audio")
-    if audio_events:
-        st.dataframe(audio_events, use_container_width=True, hide_index=True)
-    else:
-        st.info("Ainda nao ha eventos de audio processados.")
-
-
-with operations_tab:
-    st.subheader("Regras demonstrativas da Etapa 4")
-    st.caption(
-        "As regras verificam somente sequencias de dados ficticios. "
-        "Nao realizam validacao farmacologica, rastreamento real ou diagnostico."
-    )
-    patients = load_patients()
-    if not patients:
-        st.info("Cadastre um paciente ficticio antes de executar os fluxos.")
-    else:
-        options = {f"{item['code']} - {item['alias']}": item["id"] for item in patients}
-        selected = st.selectbox("Paciente da Etapa 4", list(options), key="phase4_patient")
-        patient_id = options[selected]
-
-        prescription_col, movement_col = st.columns(2)
-        with prescription_col:
-            st.markdown("#### Prescricao sintetica")
-            with st.form("prescription_evaluation_form"):
-                medication_code = st.text_input("Codigo ficticio", value="MED-SYNTH-001")
-                action = st.selectbox("Acao", ["started", "changed", "stopped"])
-                submitted = st.form_submit_button("Registrar e avaliar prescricao")
-                if submitted:
+def show_operations(patient_id: str) -> None:
+    st.caption("Registros fictícios para avaliar regras demonstrativas de sequência e continuidade.")
+    prescription_col, movement_col = st.columns(2)
+    with prescription_col:
+        with st.expander("Registrar prescrição"):
+            with st.form(f"prescription_{patient_id}"):
+                code = st.text_input("Código fictício", value="MED-SYNTH-001")
+                labels = {"started": "Iniciar", "changed": "Alterar", "stopped": "Suspender"}
+                action = st.selectbox("Ação", list(labels), format_func=labels.__getitem__)
+                if st.form_submit_button("Registrar e avaliar prescrição"):
                     result = api_request(
                         "POST",
                         f"/patients/{patient_id}/prescriptions/evaluate",
-                        json={
-                            "medication_code": medication_code,
-                            "action": action,
-                            "is_synthetic": True,
-                        },
+                        json={"medication_code": code, "action": action, "is_synthetic": True},
                     )
                     if result:
-                        st.success("Prescricao sintetica avaliada.")
-                        st.json(result)
-
-        with movement_col:
-            st.markdown("#### Movimentacao sintetica")
-            with st.form("movement_evaluation_form"):
-                from_location = st.text_input("Origem ficticia", value="ala-a-sintetica")
-                to_location = st.text_input("Destino ficticio", value="ala-b-sintetica")
-                submitted = st.form_submit_button("Registrar e avaliar movimentacao")
-                if submitted:
+                        st.success("Prescrição avaliada.")
+                        st.json(result, expanded=False)
+        records = api_request("GET", f"/patients/{patient_id}/prescriptions") or []
+        if records:
+            st.dataframe(
+                [
+                    {"Medicamento": item["medication_code"], "Ação": labels.get(item["action"], item["action"]),
+                     "Data": format_date(item["recorded_at"])}
+                    for item in records
+                ],
+                hide_index=True,
+            )
+        else:
+            st.info("Nenhuma prescrição registrada.")
+    with movement_col:
+        with st.expander("Registrar movimentação"):
+            with st.form(f"movement_{patient_id}"):
+                origin = st.text_input("Origem fictícia", value="ala-a-sintetica")
+                destination = st.text_input("Destino fictício", value="ala-b-sintetica")
+                if st.form_submit_button("Registrar e avaliar movimentação"):
                     result = api_request(
                         "POST",
                         f"/patients/{patient_id}/movements",
-                        json={
-                            "from_location": from_location,
-                            "to_location": to_location,
-                            "is_synthetic": True,
-                        },
+                        json={"from_location": origin, "to_location": destination, "is_synthetic": True},
                     )
                     if result:
-                        st.success("Movimentacao sintetica avaliada.")
-                        st.json(result)
+                        st.success("Movimentação avaliada.")
+                        st.json(result, expanded=False)
+        records = api_request("GET", f"/patients/{patient_id}/movements") or []
+        if records:
+            st.dataframe(
+                [
+                    {"Origem": item["from_location"], "Destino": item["to_location"],
+                     "Data": format_date(item["recorded_at"])}
+                    for item in records
+                ],
+                hide_index=True,
+            )
+        else:
+            st.info("Nenhuma movimentação registrada.")
 
-    phase4_events = api_request("GET", "/events?limit=100") or []
-    phase4_sources = {"vital_trends", "prescription_analysis", "movement_analysis"}
-    phase4_events = [item for item in phase4_events if item.get("source") in phase4_sources]
-    st.subheader("Eventos recentes da Etapa 4")
-    if phase4_events:
-        st.dataframe(phase4_events, use_container_width=True, hide_index=True)
+
+def show_events(patient_id: str) -> None:
+    labels = {
+        "audio_analysis": "Áudio",
+        "video_analysis": "Vídeo",
+        "vital_signs": "Sinais vitais",
+        "vital_trends": "Tendências de sinais vitais",
+        "prescription_analysis": "Prescrições",
+        "movement_analysis": "Movimentações",
+        "multimodal_correlation": "Correlação",
+    }
+    events = api_request("GET", "/events", params={"patient_id": patient_id, "limit": 100}) or []
+    if not events:
+        st.info("Nenhum evento registrado neste prontuário.")
+        return
+    origins = sorted({event["source"] for event in events}, key=lambda source: labels.get(source, source))
+    source = st.selectbox("Filtrar por origem", ["", *origins], format_func=lambda key: labels.get(key, key or "Todas"))
+    rows = [event for event in events if not source or event["source"] == source]
+    st.dataframe(
+        [
+            {
+                "Data": format_date(event["occurred_at"]),
+                "Origem": labels.get(event["source"], event["source"]),
+                "Evento": event["title"],
+                "Severidade": event["severity"],
+                "Descrição": event["description"],
+            }
+            for event in rows
+        ],
+        hide_index=True,
+    )
+
+
+def show_alerts(patient_id: str | None = None) -> None:
+    params = {"limit": 100}
+    if patient_id is not None:
+        params["patient_id"] = patient_id
+    alerts = api_request("GET", "/alerts", params=params) or []
+    if not alerts:
+        st.info("Nenhum alerta registrado.")
+        return
+    status_labels = {"open": "Aberto", "acknowledged": "Reconhecido", "resolved": "Resolvido"}
+    patients = {patient["id"]: patient["code"] for patient in load_records("/patients")} if patient_id is None else {}
+    st.dataframe(
+        [
+            {
+                **({"Paciente": patients.get(alert["patient_id"], "—")} if patient_id is None else {}),
+                "Alerta": alert["message"],
+                "Severidade": alert["severity"],
+                "Status": status_labels.get(alert["status"], alert["status"]),
+                "Data": format_date(alert["created_at"]),
+            }
+            for alert in alerts
+        ],
+        hide_index=True,
+    )
+
+
+def show_patient(patient_id: str) -> None:
+    if st.button("← Voltar à lista de pacientes"):
+        st.session_state.pop("patient_id", None)
+        st.session_state.pop("media_preview", None)
+        st.rerun()
+    patient = api_request("GET", f"/patients/{patient_id}")
+    if patient is None:
+        return
+    with st.container(border=True, key="patient_header"):
+        st.caption("PRONTUÁRIO SINTÉTICO")
+        st.title(patient["alias"])
+        birth_year = patient.get("birth_year")
+        st.write(f"**{patient['code']}**" + (f" · Ano de nascimento: {birth_year}" if birth_year else ""))
+        if patient.get("notes"):
+            st.caption(patient["notes"])
+
+    media, vitals, operations, events, alerts = st.tabs(
+        ["Mídias e análises", "Sinais vitais", "Prescrições e movimentações", "Eventos", "Alertas"]
+    )
+    with media:
+        show_media(patient_id)
+    with vitals:
+        show_vitals(patient_id)
+    with operations:
+        show_operations(patient_id)
+    with events:
+        show_events(patient_id)
+    with alerts:
+        show_alerts(patient_id)
+
+
+def show_demos() -> None:
+    st.title("Demonstrações")
+    vitals, video = st.columns(2)
+    with vitals, st.container(border=True):
+        st.subheader("Alerta de sinais vitais")
+        st.caption("Registra uma medição anômala e gera um alerta demonstrativo.")
+        if st.button("Executar demonstração de alerta", type="primary"):
+            result = api_request("POST", "/demo/vital-alert")
+            if result:
+                st.success("Medição e alerta registrados.")
+                st.json(result, expanded=False)
+    with video, st.container(border=True):
+        st.subheader("Análise de vídeo")
+        st.caption("Gera um vídeo geométrico e analisa o movimento dos quadros.")
+        if st.button("Executar demonstração de vídeo", type="primary"):
+            result = api_request("POST", "/demo/video-alert", timeout=90)
+            if result:
+                st.success("Vídeo criado, analisado e registrado.")
+                show_video_analysis(result["processing"]["job"]["result"]["analysis"])
+                st.json(result, expanded=False)
+
+
+st.markdown(
+    f"<style>{Path(__file__).with_name('erp.css').read_text(encoding='utf-8')}</style>",
+    unsafe_allow_html=True,
+)
+with st.sidebar:
+    st.markdown(
+        '<div class="medguard-brand"><span class="medguard-mark" aria-hidden="true">+</span>'
+        '<div><strong>MedGuard AI</strong><span>Gestão hospitalar</span></div></div>',
+        unsafe_allow_html=True,
+    )
+    page = st.radio("Menu principal", ["Pacientes", "Alertas", "Demonstrações"], label_visibility="collapsed")
+    st.divider()
+    st.caption("Ambiente educacional · somente dados fictícios. Os resultados não orientam decisões clínicas.")
+
+notice = st.session_state.pop("notice", None)
+if notice:
+    st.toast(notice)
+
+if page == "Pacientes":
+    active_patient = st.session_state.get("patient_id")
+    if active_patient:
+        show_patient(active_patient)
     else:
-        st.info("Ainda nao ha eventos temporais, de prescricao ou de movimentacao.")
-
+        show_registry()
+elif page == "Alertas":
+    st.title("Alertas")
+    st.caption("Alertas demonstrativos recentes de todos os pacientes.")
+    show_alerts()
+else:
+    show_demos()

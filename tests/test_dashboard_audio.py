@@ -22,6 +22,7 @@ DASHBOARD = Path(__file__).resolve().parents[1] / "dashboard" / "app.py"
 def test_dashboard_processes_audio_and_displays_persisted_result(monkeypatch, status, reason):
     selected_job = {
         "id": "selected-audio",
+        "media_file_id": "sample-audio",
         "job_type": "audio_analysis",
         "status": "queued" if status else "completed",
         "result": {},
@@ -69,17 +70,32 @@ def test_dashboard_processes_audio_and_displays_persisted_result(monkeypatch, st
     if not status:
         selected_job["result"] = {"analysis": analysis}
     jobs = [
-        {"id": "other-audio", "job_type": "audio_analysis", "status": "queued", "result": {}},
-        {"id": "video", "job_type": "video_analysis", "status": "queued", "result": {}},
+        {"id": "other-audio", "media_file_id": "sample-audio", "job_type": "audio_analysis",
+         "status": "queued", "result": {}},
+        {"id": "video", "media_file_id": "sample-video", "job_type": "video_analysis",
+         "status": "completed", "result": {"analysis": {"analyzed_frame_count": 28}}},
         selected_job,
     ]
     processed_jobs = []
+    patients = [
+        {"id": "p1", "code": "MG-001", "alias": "Paciente Fictício"},
+        {"id": "p2", "code": "MG-002", "alias": "Outro Paciente"},
+    ]
+    media = [
+        {"id": "sample-audio", "kind": "audio", "original_filename": "fala.wav"},
+        {"id": "sample-video", "kind": "video", "original_filename": "demo.mp4"},
+    ]
 
     def request(method, url, **kwargs):
         path = url.split("/api/v1", 1)[1]
         payload = []
-        if method == "GET" and path == "/jobs?limit=20":
-            payload = jobs
+        if method == "GET" and path == "/patients":
+            payload = patients
+        elif method == "GET" and path in {"/patients/p1", "/patients/p2"}:
+            payload = next(patient for patient in patients if path.endswith(patient["id"]))
+        elif method == "GET" and path in {"/media", "/jobs"}:
+            if kwargs["params"]["patient_id"] == "p1":
+                payload = media if path == "/media" else jobs
         elif method == "POST":
             assert path == "/jobs/selected-audio/process"
             processed_jobs.append(path)
@@ -89,15 +105,15 @@ def test_dashboard_processes_audio_and_displays_persisted_result(monkeypatch, st
 
     monkeypatch.setattr("requests.request", request)
     app = AppTest.from_file(str(DASHBOARD), default_timeout=10).run()
-    selector = app.selectbox(key="audio_job_id")
+    next(button for button in app.button if button.label == "Abrir prontuário").click().run()
+    selector = app.selectbox(key="job_sample-audio")
     assert len(selector.options) == 2
     selector.select("selected-audio").run()
-    button = next(button for button in app.button if button.label == "Processar áudio selecionado")
     if status:
-        button.click().run()
+        app.button(key="process_selected-audio").click().run()
         assert processed_jobs == ["/jobs/selected-audio/process"]
     else:
-        assert button.disabled
+        assert not any(button.key == "process_selected-audio" for button in app.button)
 
     assert not app.exception
     assert app.text[0].value == ("Sem texto reconhecido." if status == "skipped" else text)
@@ -118,3 +134,13 @@ def test_dashboard_processes_audio_and_displays_persisted_result(monkeypatch, st
         assert any("Extração não executada" in info.value for info in app.info)
     else:
         assert any("sem um resultado de sentimento" in info.value for info in app.info)
+
+    if status == "succeeded":
+        app.selectbox(key="media_p1").select("sample-video").run()
+        assert any(metric.label == "Quadros analisados" and metric.value == "28" for metric in app.metric)
+        next(button for button in app.button if "Voltar à lista" in button.label).click().run()
+        app.selectbox(key="registry_patient").select("p2").run()
+        next(button for button in app.button if button.label == "Abrir prontuário").click().run()
+        assert any(title.value == "Outro Paciente" for title in app.title)
+        assert any("ainda não tem mídias" in info.value for info in app.info)
+        assert not app.exception

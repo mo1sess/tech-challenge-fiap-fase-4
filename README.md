@@ -110,6 +110,8 @@ Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apa
 
 ## Demonstrações
 
+No dashboard, use **Pacientes** para cadastrar ou buscar um paciente fictício. Selecione o paciente e abra seu prontuário. Em **Mídias e análises**, escolha um arquivo para consultar e processar os jobs associados. A aba também permite reproduzir WAV e MP4 compatíveis com o navegador ou baixar o arquivo original. Os registros de sinais vitais, prescrições, movimentações, eventos e alertas ficam nas demais abas do prontuário.
+
 ### Áudio sintético e sentimento
 
 1. No portal Azure, obtenha a chave e a região do recurso **Speech** e o endpoint HTTPS e a chave do recurso **Language**. No `.env` local, preencha `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_LANGUAGE_ENDPOINT` e `AZURE_LANGUAGE_KEY`. O Docker Compose repassa as quatro variáveis à API. Execute `docker compose up --build` para aplicar a configuração. [Configuração oficial do Azure Language](https://learn.microsoft.com/en-us/azure/ai-services/language-service/sentiment-opinion-mining/how-to/call-api)
@@ -124,7 +126,7 @@ Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apa
    | Negativo | O passeio foi horrível. |
    | Misto | Adorei o passeio. A comida foi péssima. |
 
-3. Cadastre um paciente fictício e envie um WAV em **Mídia e jobs**. Na aba **Análise de áudio**, escolha o **Job de áudio** e clique em **Processar áudio selecionado**. Confira a transcrição, a identificação do Azure AI Language, o sentimento geral, os três escores e a tabela de sentenças quando disponível. Os rótulos e os escores podem variar com a transcrição e com o modelo.
+3. Abra o prontuário de um paciente fictício, envie um WAV em **Mídias e análises** e selecione o arquivo. Clique em **Processar mídia** e confira a transcrição, a identificação do Azure AI Language, o sentimento geral, os três escores e a tabela de sentenças quando disponível. Os rótulos e os escores podem variar com a transcrição e com o modelo.
 4. Consulte `GET /api/v1/jobs/{id}` no Swagger. Em `result.analysis.sentiment_analysis`, confira `provider: azure_ai_language`, `language: pt-BR`, `status: succeeded`, `sentiment`, `confidence_scores` e `sentences`. Atualize o dashboard e selecione o mesmo job para conferir a leitura do resultado persistido. O exemplo negativo isolado mantém `alert_ids` vazio.
 5. Para verificar a degradação, deixe `AZURE_LANGUAGE_KEY` vazia, mantenha o Speech configurado, aplique a configuração e processe um novo job. O job deve concluir com transcrição, métricas acústicas e regras locais, e o painel deve indicar `unavailable` com motivo `missing_configuration`. Um áudio sem fala reconhecida deve exibir `skipped`. A API bloqueia o reprocessamento de jobs concluídos.
 
@@ -140,13 +142,13 @@ A Microsoft anunciou a descontinuação dessa funcionalidade do Azure Language p
 
 A análise usa o mesmo endpoint e a mesma chave do Azure AI Language, em um recurso que aceite Text Analytics for Health. A API envia a transcrição sintética em português (`pt`) com os logs de entrada desativados e guarda entidades da categoria `SymptomOrSign` em `result.analysis.clinical_mentions`. Cada menção inclui o trecho, a posição e o comprimento no texto, a categoria, a confiança da extração e os modificadores de certeza, associação e condicionalidade retornados pelo SDK. Um campo vazio indica ausência de modificador explícito. [Configuração do recurso](https://learn.microsoft.com/en-us/azure/ai-services/language-service/text-analytics-for-health/quickstart) · [Contexto das entidades](https://learn.microsoft.com/en-us/azure/ai-services/language-service/text-analytics-for-health/concepts/assertion-detection)
 
-Para validar, gere e processe WAVs sintéticos curtos com “Estou com falta de ar”, “Não estou com falta de ar” e “Minha irmã está com falta de ar”. Compare os trechos e o contexto na aba **Análise de áudio** e no job consultado via `GET /api/v1/jobs/{id}`. Confira a marca de negação no segundo exemplo e a associação no terceiro quando o serviço a retornar. Use “O passeio foi horrível” para exercitar uma resposta sem menções a sintomas.
+Para validar, gere e processe WAVs sintéticos curtos com “Estou com falta de ar”, “Não estou com falta de ar” e “Minha irmã está com falta de ar”. Compare os trechos e o contexto em **Mídias e análises** e no job consultado via `GET /api/v1/jobs/{id}`. Confira a marca de negação no segundo exemplo e a associação no terceiro quando o serviço a retornar. Use “O passeio foi horrível” para exercitar uma resposta sem menções a sintomas.
 
 Uma resposta sem sintomas tem status `succeeded` e lista vazia. Sem fala reconhecida ou com texto vazio, a extração fica `skipped`. Configuração ausente, erro do Azure, documento acima dos limites ou operação que exceda 20 segundos recebem `unavailable` com motivo seguro. O job registra as demais análises disponíveis. Os eventos de revisão continuam baseados nas regras locais. As menções extraídas são educacionais e os escores medem a confiança na extração do trecho.
 
 ### Séries temporais e operações — Etapa 4
 
-Na aba **Prescrições e movimentações**, selecione um paciente fictício e registre sequências deliberadamente inconsistentes. Para demonstrar uma tendência de sinais vitais, use a aba **Sinais vitais** e registre quatro medições sintéticas com valores crescentes de frequência cardíaca, por exemplo `70`, `82`, `94` e `106` bpm.
+No prontuário de um paciente fictício, abra **Prescrições e movimentações** e registre sequências deliberadamente inconsistentes. Para demonstrar uma tendência de sinais vitais, use a aba **Sinais vitais** e registre quatro medições sintéticas com valores crescentes de frequência cardíaca, por exemplo `70`, `82`, `94` e `106` bpm.
 
 A aplicação:
 
@@ -160,7 +162,7 @@ As regras comprovam o fluxo de software e não representam limites clínicos, va
 
 ### Áudio — Etapa 3
 
-Na aba **Mídia e jobs**, envie somente um arquivo WAV inteiramente sintético e marque-o como fictício. Depois, na aba **Análise de áudio**, processe o job. A aplicação:
+Na aba **Mídias e análises** do prontuário, envie um WAV inteiramente sintético e processe o job associado. A aplicação:
 
 1. valida o paciente e a mídia sintéticos;
 2. transcreve o WAV em português com Azure Speech;
@@ -172,7 +174,7 @@ As credenciais `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` devem existir apenas n
 
 ### Vídeo — Etapa 2
 
-No dashboard, abra **Análise de vídeo** e clique em **Executar demonstração de vídeo sintético**. A aplicação:
+No dashboard, abra **Demonstrações** e clique em **Executar demonstração de vídeo**. A aplicação:
 
 1. cria um paciente fictício específico da demonstração;
 2. gera um arquivo AVI com formas geométricas e a marca `SYNTHETIC`;
@@ -189,7 +191,7 @@ curl -X POST http://localhost:8000/api/v1/demo/video-alert
 
 ### Sinais vitais — Etapa 1
 
-No dashboard, abra **Visão geral** e clique em **Executar demonstração de alerta**. A aplicação:
+No dashboard, abra **Demonstrações** e clique em **Executar demonstração de alerta**. A aplicação:
 
 1. cria ou reutiliza o paciente `MG-DEMO-001`;
 2. registra uma medição deliberadamente anômala e sintética;
@@ -223,8 +225,9 @@ curl http://localhost:8000/api/v1/alerts
 | `POST` | `/api/v1/patients/{id}/prescriptions/evaluate` | Registrar e avaliar sequência de prescrição fictícia |
 | `POST/GET` | `/api/v1/patients/{id}/movements` | Registrar, avaliar e listar movimentações fictícias |
 | `POST` | `/api/v1/patients/{id}/media` | Enviar áudio ou vídeo fictício |
-| `GET` | `/api/v1/media` | Consultar mídias |
-| `GET` | `/api/v1/jobs` | Consultar jobs |
+| `GET` | `/api/v1/media` | Consultar mídias, com filtro por paciente e paginação por `offset` e `limit` |
+| `GET` | `/api/v1/media/{id}/content` | Baixar mídia sintética pelo ID |
+| `GET` | `/api/v1/jobs` | Consultar jobs, com filtro por paciente e paginação por `offset` e `limit` |
 | `POST` | `/api/v1/jobs/{id}/process` | Processar um job de áudio ou vídeo pendente |
 | `POST` | `/api/v1/patients/{id}/correlations/run` | Correlacionar eventos sintéticos próximos no tempo |
 | `GET` | `/api/v1/events` | Consultar eventos normalizados |

@@ -27,9 +27,11 @@ def create_patient(payload: PatientCreate, db: Session = Depends(get_db)) -> Pat
 @router.get("", response_model=list[PatientRead])
 def list_patients(
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[Patient]:
-    return list(db.scalars(select(Patient).order_by(Patient.created_at.desc()).limit(limit)))
+    statement = select(Patient).order_by(Patient.created_at.desc(), Patient.id.desc())
+    return list(db.scalars(statement.offset(offset).limit(limit)))
 
 
 @router.get("/{patient_id}", response_model=PatientRead)

@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+
+:root {
+    --erp-ink: #14263d;
+    --erp-border: #d8e1eb;
+    --erp-sidebar: #10243a;
+}
+
+[data-testid="stAppViewContainer"] {
+    font-family: "DM Sans", sans-serif;
+    background: linear-gradient(150deg, #f3f6fa 55%, #eaf5f3 100%) fixed;
+}
+
+[data-testid="stMainBlockContainer"] {
+    max-width: 86rem;
+    padding-top: 3.6rem;
+}
+
+h1, h2, h3 {
+    font-family: Manrope, "DM Sans", sans-serif;
+    letter-spacing: -0.035em;
+}
+
+[data-testid="stSidebar"] {
+    background: var(--erp-sidebar);
+}
+
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+    padding-top: 0.9rem;
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] button {
+    color: #eaf2fb;
+}
+
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
+    color: #b2c4d8;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] > label {
+    margin: 0.15rem 0;
+    padding: 0.56rem 0.7rem;
+    border-radius: 0.6rem;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] > label:has(input:checked) {
+    background: #21405b;
+    box-shadow: inset 3px 0 #70dfca;
+}
+
+.medguard-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-bottom: 1.45rem;
+    color: #f5f9fd;
+}
+
+.medguard-brand strong {
+    display: block;
+    font: 800 1.12rem Manrope, sans-serif;
+}
+
+.medguard-brand div span {
+    color: #b2c4d8;
+    font-size: 0.8rem;
+}
+
+.medguard-brand .medguard-mark {
+    display: grid;
+    flex: 0 0 2.5rem;
+    height: 2.5rem;
+    place-items: center;
+    border-radius: 0.75rem;
+    background: #a7efdd;
+    color: #114e4c;
+    font: 800 1.6rem Manrope, sans-serif;
+}
+
+.st-key-patient_header {
+    border-color: var(--erp-border);
+    border-radius: 1rem;
+    background: linear-gradient(115deg, #fff, #e8f5f1);
+    padding: 1.15rem 1.4rem;
+}
+
+.st-key-patient_header [data-testid="stCaptionContainer"]:first-child {
+    color: #096a63;
+}
+
+[data-testid="stMetric"] {
+    background: #fff;
+    border: 1px solid var(--erp-border);
+    border-radius: 0.75rem;
+    padding: 0.8rem 1rem;
+}
+
+[data-testid="stTabs"] [role="tablist"] {
+    gap: 1rem;
+}
+
+[data-testid="stExpander"] details,
+[data-testid="stDataFrame"] {
+    border-radius: 0.65rem;
+}
+
+@media (max-width: 600px) {
+    [data-testid="stMainBlockContainer"] {
+        padding: 3.25rem 1rem 1.25rem;
+    }
+    .st-key-patient_header {
+        padding: 0.7rem 0.9rem;
+    }
+}
