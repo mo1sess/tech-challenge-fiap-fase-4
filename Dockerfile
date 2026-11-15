@@ -8,6 +8,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY app ./app
 COPY dashboard ./dashboard
+COPY samples ./samples
 COPY tests ./tests
 COPY .streamlit ./.streamlit
 

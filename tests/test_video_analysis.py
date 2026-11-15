@@ -4,8 +4,11 @@ from pathlib import Path
 import pytest
 from httpx import AsyncClient
 
-from app.modules.video.processor import (VideoAnalysis,
-                                         create_synthetic_low_motion_video)
+from app.modules.video.processor import (
+    VideoAnalysis,
+    analyze_video,
+    create_synthetic_low_motion_video,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -110,9 +113,47 @@ def fake_low_motion_analysis() -> VideoAnalysis:
 @pytest.mark.skipif(importlib.util.find_spec("cv2") is None, reason="OpenCV is installed by the project dependencies")
 def test_real_opencv_processor_reads_synthetic_video(tmp_path: Path) -> None:
     video_path = create_synthetic_low_motion_video(tmp_path / "real.avi")
-    from app.modules.video.processor import analyze_video
-
     result = analyze_video(video_path)
     assert result.decoder == "opencv"
     assert result.analyzed_frame_count >= 2
     assert result.anomalies
+    assert result.pose_analysis["status"] == "unavailable"
+    assert result.pose_analysis["reason"] == "model_files_missing"
+
+
+async def test_posture_demo_persists_consensus_deviation_and_report(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakePose:
+        def __init__(self, directory: Path) -> None:
+            self.results = iter([
+                {"status": "disagreement", "openpose_degrees": 18, "yolov8_degrees": 53},
+                {"status": "deviation", "openpose_degrees": 49, "yolov8_degrees": 53},
+            ])
+
+        def evaluate(self, frame):
+            return next(self.results, {"status": "no_person"})
+
+    monkeypatch.setattr("app.modules.video.pose.PoseAnalyzer", FakePose)
+    response = await client.post("/api/v1/demo/video-alert", params={"scenario": "posture"})
+    assert response.status_code == 200
+    processing = response.json()["processing"]
+    job = processing["job"]
+    event = next(event for event in processing["events"] if event["event_type"] == "trunk_inclination")
+    assert event["payload"]["intervals"] == [
+        {"first_frame": 3, "last_frame": 3, "start_seconds": 0.3, "end_seconds": 0.3}
+    ]
+    assert any(alert["event_id"] == event["id"] for alert in processing["alerts"])
+    stored = await client.get(f"/api/v1/jobs/{job['id']}")
+    result = stored.json()["result"]
+    assert result == job["result"]
+    report = result["video_report"]
+    assert "postura_inclinada_sintetica.avi" in report
+    assert "OpenPose 49°, YOLOv8 Pose 53°" in report
+    assert "0.3 s (quadro 4)" in report
+
+
+def test_video_report_tracks_sample_limit(tmp_path: Path) -> None:
+    path = create_synthetic_low_motion_video(tmp_path / "limited.avi")
+    analysis = analyze_video(path, max_frames=4)
+    assert analysis.coverage["sample_limit_reached"] is True

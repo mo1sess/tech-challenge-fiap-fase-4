@@ -14,7 +14,7 @@ Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto ofer
 - Primeiro fluxo demonstrável: medição sintética → regras ilustrativas → evento → alerta.
 - Processamento real de vídeo com OpenCV, extração de metadados e amostragem de quadros.
 - Métricas determinísticas de movimento por diferença entre quadros, sem identificação de pessoas.
-- Detecção demonstrativa de baixa variação ou mudança visual abrupta → evento → alerta.
+- Detecção demonstrativa de baixa movimentação, mudança visual abrupta e inclinação do tronco com OpenPose e YOLOv8 Pose, com eventos, alertas e relatório automático.
 - Job de vídeo rastreável nos estados `queued`, `processing`, `completed` e `failed`.
 - Vídeo geométrico sintético gerado por código para uma demonstração reproduzível.
 - Transcrição de áudio WAV sintético com Azure Speech, sem credenciais no repositório.
@@ -108,13 +108,57 @@ Pré-requisitos: Docker Desktop e Docker Compose.
 
 Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apaga os dados locais do projeto.
 
+## Configurar os recursos do Azure
+
+O fluxo de áudio usa dois recursos. **Azure Speech** transcreve a gravação. **Azure AI Language** analisa o sentimento e extrai menções clínicas com Text Analytics for Health. Com recursos compatíveis já criados, siga diretamente para a configuração do `.env`.
+
+### Criar os recursos
+
+No [portal Azure](https://portal.azure.com/), use **Criar um recurso** para provisionar **Speech** e **Language**. Selecione a assinatura, o grupo de recursos, uma região compatível e o plano. Para Language, use um recurso que aceite Text Analytics for Health. Aguarde a conclusão das duas implantações. [Guia do Azure Speech](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/captioning-quickstart) · [Guia do Text Analytics for Health](https://learn.microsoft.com/en-us/azure/ai-services/language-service/text-analytics-for-health/quickstart)
+
+Para criar pelo PowerShell, instale o Azure CLI, entre na sua conta e substitua `<ID-da-assinatura>` pelo ID da assinatura que usará. O registro do provedor também resolve o erro `MissingSubscriptionRegistration`. [Instalação do Azure CLI no Windows](https://learn.microsoft.com/pt-br/cli/azure/install-azure-cli-windows) · [Registro de provedores](https://learn.microsoft.com/en-us/cli/azure/provider#az-provider-register)
+
+```powershell
+az login
+az account list --query "[].{Assinatura:name,SubscriptionId:id}" -o table
+az account set --subscription "<ID-da-assinatura>"
+az provider register --namespace Microsoft.CognitiveServices --wait
+```
+
+Crie os recursos após a conclusão do registro. O exemplo usa `eastus` e solicita o plano gratuito `F0`, sujeito à disponibilidade e à cota da assinatura. [Referência do Azure CLI](https://learn.microsoft.com/en-us/cli/azure/cognitiveservices/account#az-cognitiveservices-account-create)
+
+```powershell
+$grupo = "rg-medguard-demo"
+$regiao = "eastus"
+$sufixo = Get-Random -Minimum 100000 -Maximum 1000000
+$speech = "medguard-speech-$sufixo"
+$language = "medguard-language-$sufixo"
+
+az group create -n $grupo -l $regiao -o none
+az cognitiveservices account create -g $grupo -n $speech -l $regiao --kind SpeechServices --sku F0 -o none
+az cognitiveservices account create -g $grupo -n $language -l $regiao --kind TextAnalytics --sku F0 --custom-domain $language -o none
+```
+
+### Preencher o .env
+
+No portal, abra **Todos os recursos**, selecione cada recurso e vá para **Chaves e ponto de extremidade**. Na raiz do projeto, copie `.env.example` para `.env` se o arquivo ainda não existir. Preencha os campos conforme a tabela.
+
+| Variável | Valor |
+|---|---|
+| `AZURE_SPEECH_KEY` | Chave 1 ou 2 do recurso Speech |
+| `AZURE_SPEECH_REGION` | Código da região desse recurso, por exemplo `eastus` |
+| `AZURE_LANGUAGE_ENDPOINT` | URL HTTPS do endpoint do recurso Language |
+| `AZURE_LANGUAGE_KEY` | Chave 1 ou 2 do mesmo recurso Language |
+
+Mantenha as chaves no `.env` local, ignorado pelo Git. Execute `docker compose up -d --build` na raiz do projeto para aplicar a configuração. Depois, siga o [roteiro com áudio sintético](#áudio-sintético-e-sentimento) para validar a integração.
+
 ## Demonstrações
 
 No dashboard, use **Pacientes** para cadastrar ou buscar um paciente fictício. Selecione o paciente e abra seu prontuário. Em **Mídias e análises**, escolha um arquivo para consultar e processar os jobs associados. A aba também permite reproduzir WAV e MP4 compatíveis com o navegador ou baixar o arquivo original. Os registros de sinais vitais, prescrições, movimentações, eventos e alertas ficam nas demais abas do prontuário.
 
 ### Áudio sintético e sentimento
 
-1. No portal Azure, obtenha a chave e a região do recurso **Speech** e o endpoint HTTPS e a chave do recurso **Language**. No `.env` local, preencha `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_LANGUAGE_ENDPOINT` e `AZURE_LANGUAGE_KEY`. O Docker Compose repassa as quatro variáveis à API. Execute `docker compose up --build` para aplicar a configuração. [Configuração oficial do Azure Language](https://learn.microsoft.com/en-us/azure/ai-services/language-service/sentiment-opinion-mining/how-to/call-api)
+1. [Configure os recursos do Azure](#configurar-os-recursos-do-azure) e inicie o Docker Compose.
 2. Gere áudios curtos com voz sintetizada em português do Brasil e exporte em WAV PCM de 16 bits. Use apenas frases inventadas. O Azure Speech reconhece uma única fala por arquivo neste fluxo, então evite pausas longas entre as frases. [Reconhecimento de fala única](https://learn.microsoft.com/python/api/azure-cognitiveservices-speech/azure.cognitiveservices.speech.speechrecognizer)
 
    Exemplos para exercitar diferentes tons:
@@ -174,20 +218,47 @@ As credenciais `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` devem existir apenas n
 
 ### Vídeo — Etapa 2
 
-No dashboard, abra **Demonstrações** e clique em **Executar demonstração de vídeo**. A aplicação:
+Para ativar a análise de postura, siga [Preparar os modelos de postura](#preparar-os-modelos-de-postura). No dashboard, abra **Demonstrações**, escolha **Inclinação do tronco** ou **Baixa movimentação** e clique em **Executar demonstração de vídeo**. A aplicação:
 
 1. cria um paciente fictício específico da demonstração;
-2. gera um arquivo AVI com formas geométricas e a marca `SYNTHETIC`;
+2. gera um AVI identificado como `SYNTHETIC`, com formas geométricas ou uma figura humana fictícia;
 3. registra a mídia e o job;
 4. decodifica e amostra quadros com OpenCV;
-5. calcula a porcentagem de pixels alterados entre quadros;
-6. persiste o evento e o alerta produzidos pelas regras educacionais.
+5. calcula a porcentagem de pixels alterados entre quadros e, com os pesos disponíveis, estima a postura;
+6. persiste os eventos e alertas produzidos pelas regras educacionais e gera um relatório por job.
+
+Para analisar um arquivo seu, abra o prontuário de um paciente fictício, vá a **Mídias e análises → Adicionar áudio ou vídeo**, escolha um vídeo sintético (MP4, MOV, AVI ou MKV) e clique em **Enviar e analisar**. O dashboard seleciona o arquivo enviado e mostra o resultado no prontuário. Use **Apenas registrar** para deixar a mídia na fila e processá-la mais tarde.
+
+Selecione **Baixar relatório de vídeo** para obter um arquivo de texto com as métricas, os desvios e seus trechos. O relatório fica associado ao vídeo e pode ser consultado novamente na lista de mídias do paciente.
 
 O mesmo fluxo pode ser executado pela API:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/demo/video-alert
+curl -X POST "http://localhost:8000/api/v1/demo/video-alert?scenario=posture"
 ```
+
+#### Preparar os modelos de postura
+
+Na raiz do projeto, baixe os arquivos em `storage/models`. O Docker Compose monta `storage` no container da API. Os modelos executam em CPU com OpenCV DNN. Os pesos ficam na pasta local ignorada pelo Git. O download inclui o modelo COCO do OpenPose e uma exportação ONNX do YOLOv8n Pose. [OpenPose COCO](https://github.com/CMU-Perceptual-Computing-Lab/openpose/blob/master/CMakeLists.txt) · [YOLOv8 Pose](https://docs.ultralytics.com/models/yolov8) · [Exportação ONNX](https://huggingface.co/Xenova/yolov8-pose-onnx/blob/393fd46/yolov8n-pose.onnx)
+
+```powershell
+New-Item -ItemType Directory -Path storage/models -Force | Out-Null
+
+curl.exe --fail --location --output storage/models/pose_deploy_linevec.prototxt "https://raw.githubusercontent.com/CMU-Perceptual-Computing-Lab/openpose/5c5d96523ef917bd30301245fdc8343937cae48d/models/pose/coco/pose_deploy_linevec.prototxt"
+curl.exe --fail --location --output storage/models/pose_iter_440000.caffemodel "https://huggingface.co/camenduru/openpose/resolve/main/models/pose/coco/pose_iter_440000.caffemodel"
+curl.exe --fail --location --output storage/models/yolov8n-pose.onnx "https://huggingface.co/Xenova/yolov8-pose-onnx/resolve/393fd46/yolov8n-pose.onnx"
+
+Get-FileHash -Algorithm SHA256 storage/models/pose_deploy_linevec.prototxt, storage/models/pose_iter_440000.caffemodel, storage/models/yolov8n-pose.onnx
+```
+
+| Arquivo | SHA-256 esperado |
+|---|---|
+| `pose_deploy_linevec.prototxt` | `17051B87F709AA094E09C5DA7B78E9016A1F37B2B452ED1F190FE74CCE70B1AD` |
+| `pose_iter_440000.caffemodel` | `B4CF475576ABD7B15D5316F1EE65EB492B5C9F5865E70A2E7882ED31FB682549` |
+| `yolov8n-pose.onnx` | `04F6D2416266F2ABA6C5BA8B26DE33ED9EBA3279F972AC02E33F9F1366547586` |
+
+Confira os hashes e rode `docker compose up -d --build`. Com os arquivos disponíveis, a demonstração **Inclinação do tronco** gera um vídeo curto a partir de uma imagem sintética com postura inclinada. Para enviar seu próprio vídeo de teste em **Mídias e análises**, use um vídeo fictício de uma única pessoa com ombros e quadris visíveis. [Licença do OpenPose](https://github.com/CMU-Perceptual-Computing-Lab/openpose/blob/master/LICENSE) · [Licença da exportação YOLOv8](https://huggingface.co/Xenova/yolov8-pose-onnx)
 
 ### Sinais vitais — Etapa 1
 
@@ -250,12 +321,11 @@ O adaptador Azure Speech transcreve o WAV sintético em `pt-BR`. Em seguida, o p
 
 ### Como a análise de vídeo funciona
 
-O processador reduz cada quadro amostrado para uma matriz em tons de cinza e mede a proporção de pixels cuja intensidade mudou. Duas regras configuráveis criam eventos demonstrativos:
+O processador reduz cada quadro amostrado para uma matriz em tons de cinza e mede a proporção de pixels cuja intensidade mudou. As regras de movimento geram eventos demonstrativos para movimento médio igual ou inferior a `VIDEO_LOW_MOTION_THRESHOLD` e pico de mudança igual ou superior a `VIDEO_ABRUPT_MOTION_THRESHOLD`. O relatório indica o trecho amostrado no primeiro caso e o intervalo do maior pico no segundo.
 
-- movimento médio abaixo de `VIDEO_LOW_MOTION_THRESHOLD`;
-- pico de mudança acima de `VIDEO_ABRUPT_MOTION_THRESHOLD`.
+Na análise de postura, o YOLOv8 identifica a pessoa e estima os pontos dos ombros e quadris. O OpenPose COCO estima esses pontos na região da mesma pessoa. O sistema mede o ângulo do tronco em relação à vertical da imagem. A regra educacional registra um desvio quando os dois ângulos são de pelo menos **30°** e a diferença entre eles é de até **20°**. Baixa confiança, mais de uma pessoa e divergência de classificação deixam a amostra sem conclusão. Esse ângulo depende do enquadramento e da orientação da câmera.
 
-Esses indicadores não representam postura, dor, queda, condição clínica nem identidade. São métricas visuais genéricas para comprovar o pipeline de software com dados sintéticos. MediaPipe/YOLO podem ser adicionados posteriormente como analisadores opcionais, mantendo o mesmo contrato de eventos.
+Os tempos são estimados pelo índice do quadro e FPS do vídeo. Quando o FPS está indisponível, o relatório mostra os quadros. A análise de postura usa até 12 amostras dentro do trecho processado. O sistema persiste os resultados de postura em `result.analysis.pose_analysis`, os desvios em `result.analysis.anomalies` e o relatório em `result.video_report`. Consulte esses campos em `GET /api/v1/jobs/{id}`. Se os modelos estiverem indisponíveis, o relatório informa o motivo e inclui os resultados de movimento.
 
 ## Testes
 
@@ -279,13 +349,13 @@ O workflow `.github/workflows/ci.yml` repete essa validação automaticamente em
 
 ## Variáveis de ambiente
 
-Consulte `.env.example`. Configure no `.env` local `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` para transcrição e `AZURE_LANGUAGE_ENDPOINT` e `AZURE_LANGUAGE_KEY` para sentimento. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
+Consulte `.env.example` e o [guia de configuração dos recursos do Azure](#configurar-os-recursos-do-azure). Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
 
 ## Correspondência com o Tech Challenge
 
 | Requisito final | Estado após a Etapa 4 |
 |---|---|
-| Vídeo clínico e eventos fora do padrão | Pipeline OpenCV, métricas de movimento, eventos e alertas demonstrativos implementados com vídeo sintético |
+| Vídeo clínico e eventos fora do padrão | OpenCV para métricas de movimento, OpenPose e YOLOv8 Pose para inclinação do tronco, com evidências por quadro e relatório automático em vídeos sintéticos |
 | Áudio, transcrição e análise textual | Azure Speech, métricas acústicas, regras locais contextuais, sentimento e extração de menções clínicas via Azure AI Language para WAV sintético |
 | Anomalias em sinais vitais | Regras pontuais e análise temporal transparente sobre janelas de medições sintéticas |
 | Prescrições e movimentação | Detectores demonstrativos de sequência e continuidade implementados com dados fictícios |
@@ -295,7 +365,7 @@ Consulte `.env.example`. Configure no `.env` local `AZURE_SPEECH_KEY` e `AZURE_S
 
 ## Próximas etapas
 
-1. Evoluir o analisador de vídeo com pose opcional e validação sobre material inteiramente sintético.
+1. Ampliar os cenários sintéticos de validação da análise de postura.
 2. Ampliar a correlação multimodal e consolidar eventos relacionados em uma linha do tempo.
 3. Aprimorar alertas, métricas de qualidade, observabilidade e validação para a entrega final.
 

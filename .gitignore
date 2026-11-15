@@ -25,6 +25,7 @@ work/
 # Dados gerados pela aplicação
 storage/uploads/*
 !storage/uploads/.gitkeep
+/storage/models/
 storage/*.wav
 storage/*.mp3
 storage/*.m4a

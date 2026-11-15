@@ -19,6 +19,7 @@ def test_settings(tmp_path) -> Settings:
         app_env="test",
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         storage_dir=tmp_path / "uploads",
+        video_pose_model_dir=tmp_path / "models",
         cors_origins=["http://testserver"],
         azure_language_endpoint=None,
         azure_language_key=None,

@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.db.models import Alert, ClinicalEvent, JobStatus, MediaFile, Patient, ProcessingJob
 from app.modules.video.processor import DISCLAIMER, VideoProcessingError, analyze_video
+from app.modules.video.report import build_video_report
+
+
+class VideoJobConflictError(Exception):
+    """The video job was already claimed or completed."""
 
 
 def process_video_job(
@@ -21,9 +27,17 @@ def process_video_job(
     if not media.is_synthetic or not patient.is_synthetic:
         raise ValueError("Only synthetic video and patients are accepted")
 
-    job.status = JobStatus.PROCESSING.value
-    job.progress = 10.0
-    job.error = None
+    claimed = db.execute(
+        update(ProcessingJob)
+        .where(
+            ProcessingJob.id == job.id,
+            ProcessingJob.status.in_([JobStatus.QUEUED.value, JobStatus.FAILED.value]),
+        )
+        .values(status=JobStatus.PROCESSING.value, progress=10.0, error=None)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise VideoJobConflictError("O job de vídeo já está em processamento ou foi concluído.")
     db.commit()
 
     try:
@@ -33,7 +47,10 @@ def process_video_job(
             low_motion_threshold=settings.video_low_motion_threshold,
             abrupt_motion_threshold=settings.video_abrupt_motion_threshold,
             max_frames=settings.video_max_frames,
+            pose_model_dir=settings.video_pose_model_dir,
         )
+        analysis_data = analysis.to_dict()
+        report = build_video_report(analysis_data, media.original_filename, job.id)
         events: list[ClinicalEvent] = []
         alerts: list[Alert] = []
         for anomaly in analysis.anomalies:
@@ -50,6 +67,7 @@ def process_video_job(
                     "observed_value": anomaly["observed_value"],
                     "threshold": anomaly["threshold"],
                     "unit": anomaly["unit"],
+                    "intervals": anomaly.get("intervals", []),
                     "disclaimer": DISCLAIMER,
                 },
             )
@@ -68,7 +86,8 @@ def process_video_job(
         job.status = JobStatus.COMPLETED.value
         job.progress = 100.0
         job.result = {
-            "analysis": analysis.to_dict(),
+            "analysis": analysis_data,
+            "video_report": report,
             "event_ids": [item.id for item in events],
             "alert_ids": [item.id for item in alerts],
         }

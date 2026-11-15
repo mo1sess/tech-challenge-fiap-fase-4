@@ -1,5 +1,7 @@
 import hashlib
 import uuid
+from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
@@ -8,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.db.models import MediaFile, Patient, ProcessingJob
 from app.modules.video.processor import DISCLAIMER as VIDEO_DISCLAIMER
-from app.modules.video.processor import create_synthetic_low_motion_video
+from app.modules.video.processor import create_synthetic_low_motion_video, create_synthetic_posture_video
 from app.schemas.clinical import DemoFlowResponse, MeasurementCreate, MeasurementIngestResponse
 from app.schemas.media import VideoDemoResponse, VideoJobProcessResponse
 from app.services.clinical_flow import ingest_synthetic_measurement
@@ -54,7 +56,11 @@ def run_vital_alert_demo(db: Session = Depends(get_db)) -> DemoFlowResponse:
 
 
 @router.post("/video-alert", response_model=VideoDemoResponse)
-def run_video_alert_demo(request: Request, db: Session = Depends(get_db)) -> VideoDemoResponse:
+def run_video_alert_demo(
+    request: Request,
+    scenario: Literal["low_motion", "posture"] = "low_motion",
+    db: Session = Depends(get_db),
+) -> VideoDemoResponse:
     patient = db.scalar(select(Patient).where(Patient.code == "MG-VIDEO-DEMO-001"))
     if patient is None:
         patient = Patient(
@@ -70,12 +76,18 @@ def run_video_alert_demo(request: Request, db: Session = Depends(get_db)) -> Vid
 
     request.app.state.settings.storage_dir.mkdir(parents=True, exist_ok=True)
     destination = request.app.state.settings.storage_dir / f"video_demo_{uuid.uuid4().hex}.avi"
-    create_synthetic_low_motion_video(destination)
+    if scenario == "posture":
+        image_path = Path(__file__).resolve().parents[3] / "samples" / "postura-inclinada.png"
+        create_synthetic_posture_video(destination, image_path)
+        filename = "postura_inclinada_sintetica.avi"
+    else:
+        create_synthetic_low_motion_video(destination)
+        filename = "movimento_geometrico_sintetico.avi"
     content = destination.read_bytes()
     media = MediaFile(
         patient_id=patient.id,
         kind="video",
-        original_filename="movimento_geometrico_sintetico.avi",
+        original_filename=filename,
         content_type="video/x-msvideo",
         storage_path=str(destination),
         sha256=hashlib.sha256(content).hexdigest(),

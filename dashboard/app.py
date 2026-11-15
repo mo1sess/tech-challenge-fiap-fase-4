@@ -151,14 +151,86 @@ def show_audio_analysis(analysis: dict[str, Any]) -> None:
             )
 
 
-def show_video_analysis(analysis: dict[str, Any]) -> None:
+def show_video_analysis(job: dict[str, Any]) -> None:
+    result = job["result"]
+    analysis = result["analysis"]
     st.caption(analysis.get("disclaimer", "Análise educacional de movimento em vídeo sintético."))
     frames, average, peak = st.columns(3)
     frames.metric("Quadros analisados", analysis.get("analyzed_frame_count", "—"))
     average.metric("Movimento médio", format_measure(analysis.get("mean_motion_percent"), "%"))
     peak.metric("Pico de movimento", format_measure(analysis.get("peak_motion_percent"), "%"))
-    for anomaly in analysis.get("anomalies", []):
+    coverage = analysis.get("coverage")
+    if coverage:
+        last_sample = coverage["sampled_interval"]
+        sampled_until = f"quadro {last_sample['last_frame'] + 1}"
+        if last_sample["end_seconds"] is not None:
+            sampled_until += f" · {last_sample['end_seconds']:g} s"
+        st.caption(f"Amostragem até o {sampled_until}")
+        if coverage["sample_limit_reached"]:
+            st.info("Limite de amostragem atingido. O restante do vídeo pode não ter sido avaliado.")
+    zone = analysis.get("restricted_zone")
+    if zone and not zone["marker_frames"]:
+        st.info("Marcador ArUco não localizado nas amostras. A presença na área restrita não pôde ser avaliada.")
+    pose = analysis.get("pose_analysis")
+    if pose:
+        st.markdown("**Postura · OpenPose e YOLOv8 Pose**")
+        if pose["status"] == "unavailable":
+            reasons = {
+                "model_files_missing": "Coloque os pesos em storage/models para ativar a análise.",
+                "model_load_failed": "Não foi possível carregar os modelos.",
+                "model_inference_failed": "Ocorreu uma falha ao estimar a postura.",
+            }
+            st.warning(reasons.get(pose.get("reason"), "Análise de postura indisponível."))
+        else:
+            st.caption(f"{pose['comparable_frames']} de {len(pose['samples'])} amostras com resultado comparável.")
+            if pose["status"] == "insufficient_evidence":
+                st.info("Os modelos não produziram evidência suficiente para avaliar a postura.")
+            labels = {
+                "deviation": "Inclinação detectada",
+                "within_threshold": "Dentro do limite demonstrativo",
+                "disagreement": "Sem consenso",
+                "low_confidence": "Confiança insuficiente",
+                "no_person": "Pessoa não localizada",
+                "multiple_people": "Mais de uma pessoa",
+            }
+            st.dataframe(
+                [
+                    {
+                        "Quadro": sample["frame"] + 1,
+                        "OpenPose (°)": sample.get("openpose_degrees"),
+                        "YOLOv8 Pose (°)": sample.get("yolov8_degrees"),
+                        "Resultado": labels[sample["status"]],
+                    }
+                    for sample in pose["samples"]
+                ],
+                hide_index=True,
+            )
+    anomalies = analysis.get("anomalies", [])
+    for anomaly in anomalies:
         st.warning(f"{anomaly['title']} · {anomaly['description']}")
+    rows = [
+        {
+            "Desvio": anomaly["title"],
+            "Início (s)": interval["start_seconds"],
+            "Fim (s)": interval["end_seconds"],
+            "Primeiro quadro": interval["first_frame"] + 1,
+            "Último quadro": interval["last_frame"] + 1,
+        }
+        for anomaly in anomalies
+        for interval in anomaly.get("intervals", [])
+    ]
+    if rows:
+        st.dataframe(rows, hide_index=True)
+    if "anomalies" in analysis and not anomalies:
+        st.info("Nenhum desvio detectado no trecho amostrado.")
+    if result.get("video_report"):
+        st.download_button(
+            "Baixar relatório de vídeo",
+            result["video_report"].encode("utf-8"),
+            file_name=f"relatorio-video-{job['id']}.txt",
+            mime="text/plain",
+            key=f"report_{job['id']}",
+        )
 
 
 def format_measure(value: float | None, unit: str = "") -> str:
@@ -259,6 +331,11 @@ def show_media_file(media: dict[str, Any]) -> None:
         st.download_button("Baixar arquivo", preview[1], file_name=filename)
 
 
+def process_media_job(job_id: str) -> dict[str, Any] | None:
+    with st.spinner("Analisando o arquivo enviado..."):
+        return api_request("POST", f"/jobs/{job_id}/process", timeout=90)
+
+
 def show_job(job: dict[str, Any]) -> None:
     status = job["status"]
     st.markdown(f"**{JOB_LABELS.get(status, status)}**")
@@ -268,8 +345,7 @@ def show_job(job: dict[str, Any]) -> None:
         if job.get("error"):
             st.error(job["error"])
         if st.button(label, type="primary", key=f"process_{job['id']}"):
-            with st.spinner("Processando mídia sintética..."):
-                result = api_request("POST", f"/jobs/{job['id']}/process", timeout=90)
+            result = process_media_job(job["id"])
             if result:
                 st.session_state["notice"] = "Análise registrada no prontuário."
                 st.rerun()
@@ -293,7 +369,7 @@ def show_job(job: dict[str, Any]) -> None:
                 st.markdown("**Termos encontrados pelas regras locais**")
                 st.write(expressions or "Nenhum termo encontrado.")
         elif job["job_type"] == "video_analysis" and analysis:
-            show_video_analysis(analysis)
+            show_video_analysis(job)
         with st.expander("Resultado completo da análise"):
             st.json(result)
 
@@ -303,9 +379,12 @@ def show_media(patient_id: str) -> None:
         st.caption("Para áudio, use WAV PCM de 16 bits. Envie somente mídias fictícias.")
         with st.form(f"upload_{patient_id}", clear_on_submit=True):
             uploaded = st.file_uploader("Arquivo sintético", type=["wav", "mp4", "mov", "avi", "mkv"])
-            if st.form_submit_button("Registrar mídia"):
+            actions = st.columns(2)
+            analyze = actions[0].form_submit_button("Enviar e analisar", type="primary")
+            register = actions[1].form_submit_button("Apenas registrar")
+            if analyze or register:
                 if uploaded is None:
-                    st.warning("Selecione um arquivo para registrar.")
+                    st.warning("Selecione um arquivo para enviar.")
                 else:
                     result = api_request(
                         "POST",
@@ -315,8 +394,12 @@ def show_media(patient_id: str) -> None:
                     )
                     if result:
                         st.session_state["selected_media"] = result["media"]["id"]
-                        st.session_state["notice"] = "Mídia registrada e disponível para análise."
-                        st.rerun()
+                        if analyze:
+                            processed = process_media_job(result["job"]["id"])
+                            if processed:
+                                st.success("Análise registrada no prontuário.")
+                        else:
+                            st.success("Mídia registrada e disponível para análise.")
 
     files = load_records("/media", patient_id=patient_id)
     jobs = load_records("/jobs", patient_id=patient_id)
@@ -581,13 +664,21 @@ def show_demos() -> None:
                 st.json(result, expanded=False)
     with video, st.container(border=True):
         st.subheader("Análise de vídeo")
-        st.caption("Gera um vídeo geométrico e analisa o movimento dos quadros.")
+        scenarios = {
+            "posture": "Inclinação do tronco",
+            "low_motion": "Baixa movimentação",
+        }
+        scenario = st.selectbox("Cenário sintético", list(scenarios), format_func=scenarios.__getitem__)
+        result_key = f"video_demo_{scenario}"
         if st.button("Executar demonstração de vídeo", type="primary"):
-            result = api_request("POST", "/demo/video-alert", timeout=90)
+            result = api_request("POST", "/demo/video-alert", params={"scenario": scenario}, timeout=90)
             if result:
-                st.success("Vídeo criado, analisado e registrado.")
-                show_video_analysis(result["processing"]["job"]["result"]["analysis"])
-                st.json(result, expanded=False)
+                st.session_state[result_key] = result
+        video_result = st.session_state.get(result_key)
+        if video_result:
+            st.success("Vídeo criado, analisado e registrado.")
+            show_video_analysis(video_result["processing"]["job"])
+            st.json(video_result, expanded=False)
 
 
 st.markdown(

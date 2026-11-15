@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     video_low_motion_threshold: float = 0.35
     video_abrupt_motion_threshold: float = 20.0
     video_max_frames: int = 900
+    video_pose_model_dir: Path = Path("storage/models")
     cors_origins: list[str] | str = ["http://localhost:8501"]
     azure_speech_key: str | None = None
     azure_speech_region: str | None = None

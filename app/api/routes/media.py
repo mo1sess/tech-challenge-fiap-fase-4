@@ -21,7 +21,7 @@ from app.modules.video.processor import \
 from app.schemas.media import (MediaFileRead, MediaUploadResponse,
                                ProcessingJobRead, VideoJobProcessResponse)
 from app.services.audio_flow import AUDIO_DISCLAIMER, AudioJobConflictError, process_audio_job
-from app.services.video_flow import process_video_job
+from app.services.video_flow import VideoJobConflictError, process_video_job
 
 router = APIRouter(tags=["media and jobs"])
 
@@ -219,7 +219,7 @@ def process_job(
             )
             disclaimer = VIDEO_DISCLAIMER
 
-    except AudioJobConflictError as exc:
+    except (AudioJobConflictError, VideoJobConflictError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (
         AudioTranscriptionError,
