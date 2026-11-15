@@ -23,6 +23,16 @@ SENTIMENT_REASONS = {
     "document_error": "O Azure AI Language rejeitou o documento.",
     "invalid_response": "O Azure AI Language retornou uma resposta inesperada.",
 }
+CLINICAL_MENTION_REASONS = {
+    "speech_not_recognized": SENTIMENT_REASONS["speech_not_recognized"],
+    "empty_text": SENTIMENT_REASONS["empty_text"],
+    "missing_configuration": SENTIMENT_REASONS["missing_configuration"],
+    "document_too_large": "A transcrição excede o limite do Text Analytics for Health.",
+    "service_error": "A chamada ao Text Analytics for Health falhou.",
+    "document_error": "O Text Analytics for Health rejeitou o documento.",
+    "invalid_response": "O Text Analytics for Health retornou uma resposta inesperada.",
+    "timeout": "O serviço excedeu o tempo de espera.",
+}
 
 st.set_page_config(page_title="MedGuard AI", page_icon="🛡️", layout="wide")
 
@@ -42,10 +52,45 @@ def load_patients() -> list[dict[str, Any]]:
     return api_request("GET", "/patients") or []
 
 
+def show_clinical_mentions(result: dict[str, Any] | None) -> None:
+    st.markdown("**Menções clínicas na transcrição**")
+    if not result:
+        st.info("Este job não tem uma extração de menções clínicas registrada.")
+        return
+
+    st.caption(result["disclaimer"])
+    status = result["status"]
+    reason = CLINICAL_MENTION_REASONS.get(result.get("reason"), "")
+    if status == "skipped":
+        st.info(f"Extração não executada (skipped). {reason}")
+    elif status == "unavailable":
+        st.warning(f"Extração indisponível (unavailable). {reason}")
+    elif status == "succeeded":
+        st.caption(f"Resultado do Azure Text Analytics for Health · {result['language']}")
+        if not result["mentions"]:
+            st.info("O Azure não identificou menções a sintomas ou sinais.")
+            return
+        st.caption("Campos vazios indicam contexto sem modificador explícito na resposta do serviço.")
+        st.dataframe(
+            [
+                {
+                    "Trecho": mention["text"],
+                    "Categoria": mention["category"],
+                    "Certeza": mention["context"]["certainty"],
+                    "Pessoa citada": mention["context"]["association"],
+                    "Condição": mention["context"]["conditionality"],
+                    "Confiança da extração": mention["confidence_score"],
+                }
+                for mention in result["mentions"]
+            ],
+            hide_index=True,
+        )
+
+
 def show_audio_analysis(analysis: dict[str, Any]) -> None:
     st.markdown("**Transcrição**")
     st.text(analysis["transcription"].get("text") or "Sem texto reconhecido.")
-
+    show_clinical_mentions(analysis.get("clinical_mentions"))
     st.markdown("**Análise de sentimento**")
     sentiment = analysis.get("sentiment_analysis")
     if not sentiment:
@@ -281,7 +326,7 @@ with audio_tab:
             disabled=audio_job["status"] not in {"queued", "failed"},
         ):
             with st.spinner("Processando áudio fictício..."):
-                result = api_request("POST", f"/jobs/{audio_job_id}/process", timeout=60)
+                result = api_request("POST", f"/jobs/{audio_job_id}/process", timeout=90)
             if result:
                 st.rerun()
             refreshed_job = api_request("GET", f"/jobs/{audio_job_id}")

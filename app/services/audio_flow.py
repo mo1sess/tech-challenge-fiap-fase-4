@@ -1,4 +1,5 @@
 
+import asyncio
 from pathlib import Path
 
 from sqlalchemy import update
@@ -8,6 +9,7 @@ from app.core.config import Settings
 from app.db.models import (Alert, ClinicalEvent, JobStatus, MediaFile, Patient,
                            ProcessingJob)
 from app.modules.audio.acoustic import AcousticAnalysisError, analyze_acoustics
+from app.modules.audio.azure_healthcare import analyze_clinical_mentions
 from app.modules.audio.azure_language import analyze_sentiment
 from app.modules.audio.azure_speech import (AudioTranscriptionError,
                                             transcribe_wav)
@@ -70,9 +72,10 @@ def process_audio_job(
         # 3. Analise textual contextual
         text = str(transcription.get("text") or "")
         text_analysis = analyze_text(text)
-        sentiment_analysis = analyze_sentiment(
-            text if transcription.get("status") == "recognized" else None,
-            settings,
+        recognized_text = text if transcription.get("status") == "recognized" else None
+        sentiment_analysis = analyze_sentiment(recognized_text, settings)
+        clinical_mentions = asyncio.run(
+            analyze_clinical_mentions(recognized_text, settings)
         )
 
         # 4. Geracao de eventos demonstrativos
@@ -96,6 +99,7 @@ def process_audio_job(
                 "acoustic": acoustic.to_dict(),
                 "text_analysis": text_analysis.to_dict(),
                 "sentiment_analysis": sentiment_analysis,
+                "clinical_mentions": clinical_mentions,
                 "disclaimer": AUDIO_DISCLAIMER,
             },
             "event_ids": [event.id for event in events],

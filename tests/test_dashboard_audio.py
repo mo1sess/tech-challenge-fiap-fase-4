@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from app.modules.audio.azure_healthcare import CLINICAL_MENTIONS_DISCLAIMER
 from app.modules.audio.azure_language import SENTIMENT_DISCLAIMER
 
 DASHBOARD = Path(__file__).resolve().parents[1] / "dashboard" / "app.py"
@@ -50,6 +51,20 @@ def test_dashboard_processes_audio_and_displays_persisted_result(monkeypatch, st
                 ],
             )
         analysis["sentiment_analysis"] = sentiment
+        analysis["clinical_mentions"] = {
+            "disclaimer": CLINICAL_MENTIONS_DISCLAIMER,
+            "status": status,
+            "language": "pt",
+            "reason": reason,
+            "mentions": [
+                {
+                    "text": "falta de ar",
+                    "category": "SymptomOrSign",
+                    "context": {"certainty": "negative", "association": None, "conditionality": None},
+                    "confidence_score": 0.95,
+                },
+            ],
+        }
 
     if not status:
         selected_job["result"] = {"analysis": analysis}
@@ -73,7 +88,7 @@ def test_dashboard_processes_audio_and_displays_persisted_result(monkeypatch, st
         return Mock(**{"json.return_value": payload})
 
     monkeypatch.setattr("requests.request", request)
-    app = AppTest.from_file(str(DASHBOARD)).run()
+    app = AppTest.from_file(str(DASHBOARD), default_timeout=10).run()
     selector = app.selectbox(key="audio_job_id")
     assert len(selector.options) == 2
     selector.select("selected-audio").run()
@@ -92,9 +107,14 @@ def test_dashboard_processes_audio_and_displays_persisted_result(monkeypatch, st
         assert [metric.value for metric in app.metric] == ["Misto", "0.46", "0.02", "0.52"]
         sentences = next(frame.value for frame in app.dataframe if "Sentença" in frame.value.columns)
         assert sentences.iloc[0]["Sentença"] == "Adorei o passeio."
+        mentions = next(frame.value for frame in app.dataframe if "Confiança da extração" in frame.value.columns)
+        assert mentions.iloc[0]["Trecho"] == "falta de ar"
+        assert mentions.iloc[0]["Certeza"] == "negative"
     elif status == "unavailable":
         assert any("(unavailable)" in warning.value for warning in app.warning)
+        assert any("Extração indisponível" in warning.value for warning in app.warning)
     elif status == "skipped":
         assert any("(skipped)" in info.value for info in app.info)
+        assert any("Extração não executada" in info.value for info in app.info)
     else:
         assert any("sem um resultado de sentimento" in info.value for info in app.info)

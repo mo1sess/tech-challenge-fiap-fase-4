@@ -21,6 +21,7 @@ async def test_audio_upload_creates_queued_job(client: AsyncClient, patient: dic
         "azure_speech_to_text",
         "deterministic_context_rules_v2",
         "azure_ai_language",
+        "azure_text_analytics_for_health",
         "numpy_pcm_wav",
     ]
 

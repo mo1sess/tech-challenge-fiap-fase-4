@@ -30,6 +30,11 @@ def _scores(scores: SentimentConfidenceScores) -> dict[str, float]:
     }
 
 
+def exceeds_language_request_limit(text: str, max_text_elements: int) -> bool:
+    elements = islice(TEXT_ELEMENTS.finditer(text), max_text_elements, None)
+    return next(elements, None) is not None or len(json.dumps(text)) > MAX_ENCODED_TEXT_BYTES
+
+
 def analyze_sentiment(text: str | None, settings: Settings) -> dict[str, object]:
     """Analyze one complete transcription. None represents unrecognized speech."""
     result = {
@@ -47,8 +52,7 @@ def analyze_sentiment(text: str | None, settings: Settings) -> dict[str, object]
     if not endpoint or not key:
         return {**result, "status": "unavailable", "reason": "missing_configuration"}
 
-    elements = islice(TEXT_ELEMENTS.finditer(text), MAX_TEXT_ELEMENTS, None)
-    if next(elements, None) is not None or len(json.dumps(text)) > MAX_ENCODED_TEXT_BYTES:
+    if exceeds_language_request_limit(text, MAX_TEXT_ELEMENTS):
         return {**result, "status": "unavailable", "reason": "document_too_large"}
 
     try:

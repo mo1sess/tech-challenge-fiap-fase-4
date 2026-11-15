@@ -9,6 +9,7 @@ description = "MedGuard AI para monitoramento multimodal educacional com dados s
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "aiohttp>=3.10,<4",
   "fastapi>=0.115,<1",
   "numpy>=2.0,<3",
   "opencv-python-headless>=4.10,<5",

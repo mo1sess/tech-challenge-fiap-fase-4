@@ -4,7 +4,12 @@ import wave
 from unittest.mock import MagicMock, Mock
 
 import pytest
-from azure.ai.textanalytics import AnalyzeSentimentResult, SentimentConfidenceScores
+from azure.ai.textanalytics import (
+    AnalyzeHealthcareEntitiesResult,
+    AnalyzeSentimentResult,
+    HealthcareEntity,
+    SentimentConfidenceScores,
+)
 from azure.core.exceptions import ServiceRequestError
 from httpx import AsyncClient
 from sqlalchemy.orm import Session
@@ -223,6 +228,7 @@ async def test_audio_job_transcribes_and_persists_result(
     [
         ("recognized", "O passeio foi horrível.", "negative", "succeeded", None, []),
         ("recognized", "Estou com dor.", "offline", "unavailable", "service_error", ["pain_report"]),
+        ("recognized", "Estou com dor.", "healthcare-offline", "succeeded", None, ["pain_report"]),
         ("recognized", "Estou com dor.", "unconfigured", "unavailable", "missing_configuration", ["pain_report"]),
         ("recognized", " ", "negative", "skipped", "empty_text", []),
         ("no_match", "", "negative", "skipped", "speech_not_recognized", []),
@@ -251,6 +257,20 @@ async def test_audio_sentiment_is_persisted_independently(
     client_class = MagicMock()
     azure_client = client_class.return_value.__enter__.return_value
     monkeypatch.setattr("app.modules.audio.azure_language.TextAnalyticsClient", client_class)
+    healthcare_class = MagicMock()
+    monkeypatch.setattr("app.modules.audio.azure_healthcare.TextAnalyticsClient", healthcare_class)
+    healthcare_client = healthcare_class.return_value.__aenter__.return_value
+    healthcare_operation = healthcare_client.begin_analyze_healthcare_entities
+
+    async def healthcare_results():
+        entities = [
+            HealthcareEntity(text="dor", category="SymptomOrSign", offset=10, length=3, confidence_score=0.9)
+        ] if signals else []
+        yield AnalyzeHealthcareEntitiesResult(entities=entities)
+
+    healthcare_operation.return_value.result.return_value = healthcare_results()
+    if scenario == "healthcare-offline":
+        healthcare_operation.side_effect = ServiceRequestError("private failure detail")
     if scenario != "unconfigured":
         test_settings.azure_language_endpoint = "https://language.example.invalid"
         test_settings.azure_language_key = "dummy-key"
@@ -290,6 +310,17 @@ async def test_audio_sentiment_is_persisted_independently(
     assert analysis["acoustic"]["duration_seconds"] == 1.0
     assert analysis["text_analysis"]["matched_signals"] == signals
     assert analysis["text_analysis"]["requires_review"] == bool(signals)
+    mentions = analysis["clinical_mentions"]
+    if scenario == "healthcare-offline":
+        assert mentions["status"] == "unavailable"
+        assert mentions["reason"] == "service_error"
+    elif status == "skipped" or scenario == "unconfigured":
+        assert mentions["status"] == status
+        assert mentions["reason"] == reason
+        healthcare_class.assert_not_called()
+    else:
+        assert mentions["status"] == "succeeded"
+        assert [mention["text"] for mention in mentions["mentions"]] == (["dor"] if signals else [])
     sentiment = analysis["sentiment_analysis"]
     assert sentiment["status"] == status
     assert sentiment.get("reason") == reason

@@ -19,6 +19,7 @@ Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto ofer
 - Vídeo geométrico sintético gerado por código para uma demonstração reproduzível.
 - Transcrição de áudio WAV sintético com Azure Speech, sem credenciais no repositório.
 - Análise de sentimento da transcrição em português com Azure AI Language, com resultados por sentença.
+- Extração de menções a sintomas e sinais da transcrição com Azure Text Analytics for Health, incluindo contexto quando disponível.
 - Métricas acústicas locais de duração, RMS, pico, silêncio e clipping.
 - Análise textual determinística com tratamento de negação, contexto histórico e terceiros.
 - Eventos de revisão humana para achados afirmativos, sem alerta ou diagnóstico automático.
@@ -43,7 +44,7 @@ flowchart LR
     VIDEO --> EVENT
     API --> AUDIO[Azure Speech + análise acústica e textual]
     AUDIO --> EVENT
-    AUDIO --> LANGUAGE[Azure AI Language para sentimento]
+    AUDIO --> LANGUAGE[Azure AI Language para sentimento e menções clínicas]
     API --> TEMPORAL[Regras temporais sintéticas]
     API --> OPERATIONS[Prescrições e movimentações fictícias]
     TEMPORAL --> EVENT
@@ -134,6 +135,14 @@ O Azure AI Language classifica o tom do texto transcrito como positivo, neutro, 
 O adaptador usa `TextAnalyticsClient.analyze_sentiment` com um documento por chamada e solicita a desativação dos logs de entrada no serviço. Transcrições acima de 5.120 elementos de texto Unicode ou que excedam o tamanho da requisição síncrona de 1 MB ficam com `unavailable` e motivo `document_too_large`. A aplicação preserva o texto completo. Texto vazio ou fala sem reconhecimento ficam com `skipped` e dispensam a chamada. Erros de serviço, rejeições do documento e respostas inesperadas ficam com `unavailable` e um código de motivo seguro. O dashboard exibe a origem Azure somente para resultados com `succeeded`. [SDK oficial](https://learn.microsoft.com/en-us/python/api/overview/azure/ai-textanalytics-readme) · [Limites do serviço](https://learn.microsoft.com/en-us/azure/ai-services/language-service/concepts/data-limits)
 
 A Microsoft anunciou a descontinuação dessa funcionalidade do Azure Language para 31 de março de 2029. [Ciclo de vida da funcionalidade](https://learn.microsoft.com/en-us/azure/ai-services/language-service/sentiment-opinion-mining/overview?tabs=prebuilt)
+
+### Menções clínicas na transcrição
+
+A análise usa o mesmo endpoint e a mesma chave do Azure AI Language, em um recurso que aceite Text Analytics for Health. A API envia a transcrição sintética em português (`pt`) com os logs de entrada desativados e guarda entidades da categoria `SymptomOrSign` em `result.analysis.clinical_mentions`. Cada menção inclui o trecho, a posição e o comprimento no texto, a categoria, a confiança da extração e os modificadores de certeza, associação e condicionalidade retornados pelo SDK. Um campo vazio indica ausência de modificador explícito. [Configuração do recurso](https://learn.microsoft.com/en-us/azure/ai-services/language-service/text-analytics-for-health/quickstart) · [Contexto das entidades](https://learn.microsoft.com/en-us/azure/ai-services/language-service/text-analytics-for-health/concepts/assertion-detection)
+
+Para validar, gere e processe WAVs sintéticos curtos com “Estou com falta de ar”, “Não estou com falta de ar” e “Minha irmã está com falta de ar”. Compare os trechos e o contexto na aba **Análise de áudio** e no job consultado via `GET /api/v1/jobs/{id}`. Confira a marca de negação no segundo exemplo e a associação no terceiro quando o serviço a retornar. Use “O passeio foi horrível” para exercitar uma resposta sem menções a sintomas.
+
+Uma resposta sem sintomas tem status `succeeded` e lista vazia. Sem fala reconhecida ou com texto vazio, a extração fica `skipped`. Configuração ausente, erro do Azure, documento acima dos limites ou operação que exceda 20 segundos recebem `unavailable` com motivo seguro. O job registra as demais análises disponíveis. Os eventos de revisão continuam baseados nas regras locais. As menções extraídas são educacionais e os escores medem a confiança na extração do trecho.
 
 ### Séries temporais e operações — Etapa 4
 
@@ -274,7 +283,7 @@ Consulte `.env.example`. Configure no `.env` local `AZURE_SPEECH_KEY` e `AZURE_S
 | Requisito final | Estado após a Etapa 4 |
 |---|---|
 | Vídeo clínico e eventos fora do padrão | Pipeline OpenCV, métricas de movimento, eventos e alertas demonstrativos implementados com vídeo sintético |
-| Áudio, transcrição e análise textual | Azure Speech, métricas acústicas, regras locais contextuais e sentimento via Azure AI Language para WAV sintético |
+| Áudio, transcrição e análise textual | Azure Speech, métricas acústicas, regras locais contextuais, sentimento e extração de menções clínicas via Azure AI Language para WAV sintético |
 | Anomalias em sinais vitais | Regras pontuais e análise temporal transparente sobre janelas de medições sintéticas |
 | Prescrições e movimentação | Detectores demonstrativos de sequência e continuidade implementados com dados fictícios |
 | Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais, vídeo, prescrições e movimentações |
