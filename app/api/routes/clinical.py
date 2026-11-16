@@ -34,6 +34,8 @@ from app.services.movement_flow import ingest_synthetic_movement
 from app.services.prescription_flow import DISCLAIMER as PRESCRIPTION_DISCLAIMER
 from app.services.prescription_flow import ingest_synthetic_prescription
 from app.services.vital_signs import DISCLAIMER
+from app.db.models import AlertReviewAction
+from app.schemas.clinical import AlertReviewRead
 
 
 router = APIRouter(tags=["clinical"])
@@ -194,13 +196,29 @@ def list_alerts(
 
 @router.patch("/alerts/{alert_id}", response_model=AlertRead)
 def update_alert(alert_id: str, payload: AlertStatusUpdate, db: Session = Depends(get_db)) -> Alert:
-    alert = db.get(Alert, alert_id)
+    alert = db.scalar(select(Alert).where(Alert.id == alert_id).with_for_update())
     if alert is None:
         raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.status == payload.status:
+        return alert
+    # Resolução direta preservada para clientes antigos; resolvido é terminal.
+    if alert.status == "resolved":
+        raise HTTPException(status_code=409, detail="Alerta resolvido não pode retornar à revisão")
+    db.add(AlertReviewAction(alert_id=alert.id, previous_status=alert.status,
+                            status=payload.status, reviewer=payload.reviewer, note=payload.note))
     alert.status = payload.status
     if payload.status == AlertStatus.ACKNOWLEDGED.value:
         alert.acknowledged_at = datetime.now(UTC)
     db.commit()
     db.refresh(alert)
     return alert
+
+
+@router.get("/alerts/{alert_id}/history", response_model=list[AlertReviewRead])
+def alert_history(alert_id: str, patient_id: str | None = None, db: Session = Depends(get_db)):
+    alert = db.get(Alert, alert_id)
+    if alert is None or (patient_id is not None and alert.patient_id != patient_id):
+        raise HTTPException(status_code=404, detail="Alerta não encontrado para o paciente")
+    return list(db.scalars(select(AlertReviewAction).where(AlertReviewAction.alert_id == alert_id)
+                           .order_by(AlertReviewAction.created_at, AlertReviewAction.id)))
 

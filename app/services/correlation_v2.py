@@ -107,23 +107,17 @@ def load_events(
 def deduplicate_video_jobs(
     events: list[ClinicalEvent],
 ) -> list[ClinicalEvent]:
-    """
-    Select one representative anomaly per video job.
+    """Seleciona uma anomalia representativa por tarefa de vídeo.
 
-    Selection priority:
-    1. Highest severity
-    2. Most recent occurrence
-    3. Smallest event ID as deterministic tie-breaker
-
-    Original database events remain untouched.
-    """
+    Prioridade: maior severidade, ocorrência mais recente e menor ID do evento
+    como desempate determinístico. Os eventos originais não são alterados."""
 
     grouped: dict[str, ClinicalEvent] = {}
 
     for event in events:
         job_id = (event.payload or {}).get("job_id")
 
-        # Events without a job ID remain independent.
+        # Eventos sem ID de tarefa permanecem independentes.
         key = job_id or event.id
 
         current = grouped.get(key)
@@ -182,7 +176,7 @@ def correlate_multimodal_v2(
 
     candidates: dict[tuple[str, ...], tuple[ClinicalEvent, ...]] = {}
 
-    # Three-source correlations take priority.
+    # Correlações de três fontes têm prioridade.
     for group in product(audio, video, vital):
         if within_window(group, window_minutes):
             candidates[event_key(group)] = group
@@ -191,8 +185,8 @@ def correlate_multimodal_v2(
         set(key) for key in candidates
     ]
 
-    # Add pairs involving video when they are not
-    # already represented by an eligible triple.
+    # Acrescenta pares com vídeo que ainda não estejam
+    # representados por um trio elegível.
     for left, right in ((audio, video), (video, vital)):
         for group in product(left, right):
             if not within_window(group, window_minutes):
@@ -284,15 +278,15 @@ def correlate_multimodal_v2(
                 ),
             },
         )
-        
+
         try:
             with db.begin_nested():
                 db.add(correlation)
                 db.flush()
 
         except IntegrityError:
-            # Another request may have inserted this same
-            # correlation first. Preserve the outer transaction.
+            # Outra requisição pode ter inserido a mesma correlação.
+            # Preserva a transação externa.
             existing_keys.add(key)
             continue
 

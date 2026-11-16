@@ -1,5 +1,5 @@
 
-"""Repeatable migration for multimodal correlation uniqueness."""
+"""Migração repetível para garantir a unicidade da correlação multimodal."""
 
 import hashlib
 import json
@@ -28,7 +28,7 @@ def run_migration(engine=None) -> None:
             dialect = connection.dialect.name
 
             if dialect == "postgresql":
-                # Serialize migrations and prevent concurrent writes during backfill.
+                # Serializa migrações e impede gravações concorrentes no preenchimento.
                 connection.execute(text("LOCK TABLE clinical_events IN ACCESS EXCLUSIVE MODE"))
                 connection.execute(text(
                     "ALTER TABLE clinical_events "
@@ -55,8 +55,8 @@ def run_migration(engine=None) -> None:
                 ORDER BY created_at, id
             """)).mappings().all()
 
-            # Clear managed keys first so an existing unique index cannot reject
-            # reassignment to the oldest historical duplicate on a repeated run.
+            # Limpa as chaves gerenciadas para evitar conflito com o índice único
+            # na reatribuição à duplicata histórica mais antiga.
             for row in rows:
                 connection.execute(text(
                     "UPDATE clinical_events SET correlation_key = NULL WHERE id = :id"
@@ -80,7 +80,7 @@ def run_migration(engine=None) -> None:
                 key = fingerprint(row["patient_id"], source_ids)
 
                 if key in used_keys:
-                    # Keep historical duplicates, with a NULL key.
+                    # Preserva duplicatas históricas com chave NULL.
                     connection.execute(text("""
                         UPDATE clinical_events
                         SET correlation_key = NULL

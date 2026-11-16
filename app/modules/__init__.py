@@ -1,2 +1,2 @@
-"""Pluggable multimodal processors."""
+"""Processadores multimodais modulares."""
 

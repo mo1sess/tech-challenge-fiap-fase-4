@@ -12,7 +12,7 @@ st.set_page_config(page_title="MedGuard AI", page_icon="🛡️", layout="wide")
 
 def api_request(method: str, path: str, **kwargs: Any) -> Any:
     try:
-        response = requests.request(method, f"{API_V1}{path}", timeout=20, **kwargs)
+        response = requests.request(method, f"{API_V1}{path}", timeout=90, **kwargs)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as exc:
@@ -302,7 +302,7 @@ with operations_tab:
 
 
 # ============================================================
-# MULTIMODAL MONITORING DASHBOARD V2
+# DASHBOARD DE MONITORAMENTO MULTIMODAL V2
 # ============================================================
 
 from multimodal_v2 import render_multimodal_dashboard

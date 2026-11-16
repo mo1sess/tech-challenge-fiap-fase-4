@@ -25,7 +25,7 @@ def test_legacy_schema_upgrade_preserves_history_and_is_repeatable():
     check_schema(engine)
     with engine.connect() as conn:
         before = conn.execute(text("SELECT * FROM clinical_events ORDER BY id")).all()
-    # Simulate a key attached to a later historical duplicate.
+    # Simula uma chave atribuída a uma duplicata histórica posterior.
     with engine.begin() as conn:
         conn.execute(text("UPDATE clinical_events SET correlation_key = NULL"))
         conn.execute(text("UPDATE clinical_events SET correlation_key = :key WHERE id = 'second'"),

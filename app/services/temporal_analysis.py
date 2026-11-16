@@ -31,7 +31,7 @@ def evaluate_recent_trends(
     *,
     window_size: int = 4,
 ) -> list[TrendDetection]:
-    """Apply transparent trend rules to recent synthetic measurements."""
+    """Aplica regras explícitas de tendência às medições sintéticas recentes."""
     statement = (
         select(ClinicalMeasurement)
         .where(

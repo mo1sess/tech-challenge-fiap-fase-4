@@ -1,65 +1,57 @@
-# Estratégia de testes e validação
+# Testes e validação técnica
 
-[README](../README.md) · [Arquitetura](ARCHITECTURE.md) · [Demonstração](DEMO_GUIDE.md)
+[README](../README.md) · [Arquitetura](ARCHITECTURE.md) · [Demonstração](DEMO_GUIDE.md) · [Prontidão técnica](READINESS.md)
 
-## Escopo e evidências
+## Estratégia e evidências
 
-O projeto usa Pytest, HTTPX/ASGITransport, SQLAlchemy e fixtures de dados sintéticos. [pyproject.toml](../pyproject.toml) configura `testpaths=tests` e `addopts=-q`. Não há marcadores que separem formalmente unitários e integração; a classificação abaixo descreve o comportamento dos testes existentes.
+O projeto utiliza Pytest, HTTPX/ASGITransport, SQLAlchemy e dados sintéticos. [pyproject.toml](../pyproject.toml) define `testpaths=tests` e `addopts=-q`. A suíte contém **77 testes**; não há marcadores formais que separem testes unitários e de integração.
 
-A equipe informou **57 testes aprovados** em execução anterior, como evidência histórica. Na revisão documental de **13/11/2026**, o comando `docker compose exec -T api python -m pytest` também concluiu com **57 passed in 22.81s**. A duração descreve somente essa execução, sem constituir benchmark ou garantia de contagem permanente.
+Na validação operacional de 15/11/2026, a suíte retornou **77 passed in 21.39s**. Também foram aprovadas **26 verificações da API real** e **21 etapas com Streamlit AppTest**, em execução separada. Os números descrevem uma execução específica, não uma garantia de cobertura completa ou desempenho.
 
-O comando direto `docker compose exec -T api pytest` falhou na coleta de `tests/test_correlation_v2.py`, que importa `tests.test_correlation`, com `ModuleNotFoundError: No module named 'tests'`. A invocação por módulo resolveu a coleta na imagem examinada. O Python local disponível não tinha Pytest instalado; não houve execução local da suíte nesta revisão.
+Após a consolidação documental para entrega, a suíte foi novamente executada sobre os arquivos atuais, montados somente para leitura na imagem validada: **77 passed in 20.42s**. O comando foi `docker compose run --rm --no-deps --volume 'C:/dev/tech-challenge-fiap-fase-4:/review:ro' --workdir /review api python -m pytest -p no:cacheprovider`. O caminho absoluto corresponde ao computador do ensaio e deve ser substituído pela raiz local ao repetir essa montagem. A opção desabilita apenas o cache do Pytest; não exclui testes.
 
-A imagem ativa pode diferir de alterações locais não reconstruídas. A comparação do conteúdo Python e da configuração de testes deve preceder a atribuição do resultado ao checkout atual; registre divergências se existirem. Arquivos de documentação não alteram a lógica dos testes.
+Testes com simulações verificam contratos e regras sem acessar Azure ou carregar um modelo de pose. A evidência de integração externa provém das demonstrações reais, explicitamente identificadas neste documento. Não se deve inferir precisão clínica do total de testes aprovados.
 
-## Organização e garantias
+## Organização da suíte
 
-| Categoria | Arquivos | O que verifica |
+| Área | Arquivos | Verificações principais |
 |---|---|---|
-| Unidade: acústica | [test_acoustic_analysis.py](../tests/test_acoustic_analysis.py) | Métricas de seno sintético, silêncio e arquivo inválido |
-| Unidade: texto | [test_audio_text_analysis.py](../tests/test_audio_text_analysis.py) | Padrões, acentos, negação, terceiros, histórico e separação de sentenças |
-| Integração de áudio/API | [test_audio_analysis.py](../tests/test_audio_analysis.py), [test_audio_events.py](../tests/test_audio_events.py) | Transcrição simulada, persistência de resultado/eventos e consolidação por categoria |
-| Saúde e pacientes | [test_health_and_patients.py](../tests/test_health_and_patients.py) | Resposta de saúde e rejeição de paciente não sintético |
-| Upload e jobs | [test_media_jobs.py](../tests/test_media_jobs.py) | Job queued após upload e rejeição de extensão de áudio incompatível |
-| Sinais e alertas | [test_vital_alert_flow.py](../tests/test_vital_alert_flow.py) | Medição sem anomalia e demo com evento/alerta crítico |
-| Operações/tendências | [test_phase4_detection.py](../tests/test_phase4_detection.py) | Série crescente, prescrição duplicada e quebra de continuidade |
-| Vídeo | [test_video_analysis.py](../tests/test_video_analysis.py) | Fluxos com mocks, bloqueio de reprocessamento e OpenCV real sobre vídeo geométrico |
-| Correlação v1 | [test_correlation.py](../tests/test_correlation.py) | Áudio–vital, idempotência, janela e paciente ausente |
-| Correlação v2 por API | [test_correlation_v2.py](../tests/test_correlation_v2.py) | Pares com vídeo, trio, evento antigo e isolamento entre pacientes |
-| Bordas/unicidade v2 | [test_correlation_v2_edge_cases.py](../tests/test_correlation_v2_edge_cases.py) | Limite exato, amplitude total, prioridade, deduplicação, repetição e chave única |
-| Esquema | [test_schema_migration.py](../tests/test_schema_migration.py) | Migração SQLite legada, histórico preservado, repetição e índice único |
+| Saúde e pacientes | [test_health_and_patients.py](../tests/test_health_and_patients.py) | Saúde da aplicação e rejeição de paciente não sintético |
+| Mídia e tarefas | [test_media_jobs.py](../tests/test_media_jobs.py) | Registro de mídia, tarefa em `queued` e extensão incompatível |
+| Acústica | [test_acoustic_analysis.py](../tests/test_acoustic_analysis.py), [test_extended_acoustics.py](../tests/test_extended_acoustics.py) | Tom, silêncio, energia por janela, variabilidade e intervalos silenciosos |
+| Texto contextual | [test_audio_text_analysis.py](../tests/test_audio_text_analysis.py) | Expressões, acentos, negação, terceiros, histórico e sentenças |
+| Áudio integrado | [test_audio_analysis.py](../tests/test_audio_analysis.py), [test_audio_events.py](../tests/test_audio_events.py) | Transcrição simulada, resultados e eventos persistidos |
+| Azure AI Language | [test_azure_language.py](../tests/test_azure_language.py) | SDK simulado, sentimentos, entidades, falhas e resultados parciais |
+| Vídeo OpenCV | [test_video_analysis.py](../tests/test_video_analysis.py) | Vídeo geométrico real, contratos com simulações e bloqueio de reprocessamento |
+| Pose | [test_pose_analysis.py](../tests/test_pose_analysis.py), [test_video_pose_flow.py](../tests/test_video_pose_flow.py) | Pose simulada, indisponibilidade e integração de eventos/alertas |
+| Sinais vitais e operações | [test_vital_alert_flow.py](../tests/test_vital_alert_flow.py), [test_phase4_detection.py](../tests/test_phase4_detection.py) | Anomalias, tendências, prescrições duplicadas e continuidade de movimentações |
+| Correlação v1 | [test_correlation.py](../tests/test_correlation.py) | Áudio–sinais vitais, janela, paciente ausente e idempotência |
+| Correlação v2 | [test_correlation_v2.py](../tests/test_correlation_v2.py), [test_correlation_v2_edge_cases.py](../tests/test_correlation_v2_edge_cases.py) | Pares, trios, bordas, prioridade, isolamento, deduplicação e unicidade |
+| Migração | [test_schema_migration.py](../tests/test_schema_migration.py) | Esquema SQLite legado, histórico preservado e repetição |
+| Revisão de alertas | [test_review_workflow.py](../tests/test_review_workflow.py) | Transições, idempotência, histórico, isolamento e migração aditiva |
 
-## Isolamento e integração de API
+## Isolamento e execução
 
-[conftest.py](../tests/conftest.py) configura backend AnyIO `asyncio`, SQLite em arquivo temporário e storage temporário por teste. Cria aplicação com `create_app(settings)`, tabelas por `Base.metadata.create_all()` e cliente assíncrono HTTPX com ASGITransport, sem abrir porta de rede. A fixture `patient` cria registro fictício via API.
+[conftest.py](../tests/conftest.py) utiliza SQLite e armazenamento temporários por teste, cliente HTTPX e `create_app(settings)`. O Azure AI Language e a pose ficam explicitamente desabilitados na configuração da aplicação de teste. Os adaptadores externos são simulados nos testes que os exercitam. Não há chamadas pagas nem download automático de modelos no Pytest.
 
-Os testes de borda usam SQLite em memória e `StaticPool`, exercitando diretamente o serviço. O transporte ASGI usado nas fixtures não aciona automaticamente o lifespan; tabelas são criadas explicitamente. Assim, saúde/API não equivalem a validar toda a inicialização operacional. A checagem de esquema é chamada diretamente no teste de migração.
+O transporte ASGI não inicia automaticamente o ciclo de vida da aplicação; as tabelas de teste são criadas explicitamente. Portanto, a suíte isolada não substitui a verificação de inicialização dos serviços e do PostgreSQL real.
 
-## Correlação: casos de borda e idempotência
+Com a API ativa e a imagem correspondente ao código:
 
-A suíte cobre janela exata de 300 segundos e rejeição em 301 segundos no padrão de cinco minutos. O trio precisa caber na amplitude total: eventos em 0, 180 e 360 segundos não formam trio de cinco minutos, embora os pares vizinhos sejam elegíveis. Testa que trios suprimem pares contidos, pacientes distintos não se misturam e somente o representante de maior severidade do job de vídeo entra na combinação do caso testado.
+```powershell
+docker compose exec -T api python -m pytest
+```
 
-Repetir o mesmo conjunto retorna lista vazia; depois de um par existente, adicionar a terceira fonte permite novo trio. Janelas 0 e 61 e paciente ausente são rejeitados. Não se deve inferir que todos os desempates, todos os limites de consulta ou todas as combinações de entrada estejam cobertos.
+Sem iniciar o servidor, após construir a imagem:
 
-### Unicidade e concorrência
+```powershell
+docker compose build api
+docker compose run --rm --no-deps api python -m pytest
+```
 
-O teste tenta inserir manualmente um evento com `correlation_key` já usada e espera `IntegrityError`. Isso demonstra proteção do índice no SQLite e manutenção do original. O código usa savepoint para tratar disputa de inserção, mas não existe teste com duas requisições concorrentes ao PostgreSQL real. Logo, não há evidência de carga concorrente, deadlocks, isolamento PostgreSQL ou throughput.
+Esses testes usam SQLite temporário; `--no-deps` não inicia PostgreSQL. Não remova volumes ou dados para repetir a suíte.
 
-### Migração do esquema
-
-O teste constrói uma tabela SQLite legada sem a coluna, insere duas correlações históricas equivalentes, confirma falha do verificador e executa migração. Confere preservação das linhas, fingerprint no registro mais antigo, `NULL` no duplicado, repetibilidade mesmo com chave atribuída ao duplicado posterior e rejeição de nova chave duplicada.
-
-Não testa `LOCK TABLE ... IN ACCESS EXCLUSIVE MODE` no PostgreSQL, tempo de bloqueio, backup/restauração ou bancos de grande porte. Não execute migração no banco operacional como parte da suíte; siga o procedimento de manutenção do [README](../README.md#migração-segura-de-postgresql-existente).
-
-## Mocks e integrações externas
-
-Áudio gera WAV sintético e usa `monkeypatch` para substituir `app.services.audio_flow.transcribe_wav`. Isso testa o fluxo posterior sem chave, rede ou custo Azure. Não comprova precisão de reconhecimento, disponibilidade, cancelamento de conta, limites do SDK ou qualidade de transcrição real.
-
-Vários testes de vídeo simulam `analyze_video`; há também teste real do processador OpenCV com vídeo geométrico. Esse caso comprova geração/decodificação básica no ambiente testado, sem abranger todos os codecs, arquivos corrompidos, câmeras, iluminação ou material real.
-
-## Executar localmente
-
-Na raiz, com Python 3.11+:
+Localmente, na raiz:
 
 ```powershell
 python -m venv .venv
@@ -68,89 +60,89 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-Os testes definem SQLite isolado; não precisam do PostgreSQL nem de Azure configurado. Para selecionar grupos:
+Seleção de grupos e cobertura opcional:
 
 ```powershell
 python -m pytest tests/test_correlation.py tests/test_correlation_v2.py tests/test_correlation_v2_edge_cases.py
-python -m pytest tests/test_schema_migration.py
-python -m pytest tests/test_video_analysis.py
-```
-
-Para relatório de cobertura opcional, sem percentual mínimo configurado:
-
-```powershell
+python -m pytest tests/test_schema_migration.py tests/test_review_workflow.py
+python -m pytest tests/test_video_analysis.py tests/test_pose_analysis.py tests/test_video_pose_flow.py
 python -m pytest --cov=app --cov-report=term-missing
 ```
 
-Não há percentual de cobertura medido ou garantido nesta entrega. Não remova diretórios de dados ou volumes para repetir os testes.
+Não há percentual mínimo configurado nem percentual de cobertura garantido. A invocação por módulo evita o problema de importação entre arquivos de `tests/` observado com o comando direto `pytest` na imagem examinada.
 
-## Executar no Docker
+## Correlação, migração e concorrência
 
-Com API ativa e imagem correspondente ao checkout:
+A suíte cobre a borda de 300 segundos e a rejeição em 301 segundos na janela de cinco minutos. Um trio em 0, 180 e 360 segundos é rejeitado porque a amplitude total supera a janela, mesmo que os pares vizinhos sejam elegíveis. Trios suprimem pares contidos; pacientes distintos não se misturam. A representação de vídeo considera severidade, data e ID conforme o algoritmo.
+
+Repetir o mesmo conjunto retorna lista vazia. Acrescentar uma terceira fonte após um par permite um novo trio sem apagar o par histórico. Janelas fora do intervalo 1–60 e pacientes ausentes são rejeitados.
+
+O índice único foi exercitado com inserção duplicada em SQLite, esperando `IntegrityError`. A migração constrói um esquema legado e verifica coluna, índice, preservação das duplicatas históricas e repetibilidade. Essas verificações não demonstram isolamento, bloqueios, concorrência ou desempenho sob carga no PostgreSQL. Não execute migrações no banco operacional como parte da suíte; siga o [procedimento de manutenção](../README.md#migração-segura-de-postgresql-existente).
+
+## Validação real de Azure e da demonstração multimodal
+
+O comando abaixo foi executado com serviços Azure reais e retornou `PASS`:
 
 ```powershell
-docker compose exec api python -m pytest
+docker compose exec -T api python -m scripts.demo_multimodal --audio /app/storage/test_audio2.wav --api-url http://localhost:8000/api/v1
 ```
 
-Sem iniciar o servidor, depois de construir a imagem:
+O paciente `MG-MULTI-7F34EB6D` teve um evento de áudio, um de vídeo, um de sinais vitais e uma correlação de três fontes: **quatro eventos e dois alertas persistidos**. A repetição da correlação criou zero eventos. O resultado do áudio continha transcrição real e `azure_language.status=completed`, sentimento `positive` e uma operação de entidades concluída com lista vazia para a frase utilizada. Não foram fabricadas entidades nem resultados do provedor.
+
+O vídeo geométrico retornou `pose.status=no_pose`, preservando OpenCV e a correlação. A validação positiva de pose foi realizada separadamente com avatar. O WAV é uma preparação sintética local, não um arquivo garantido pelo Git; consulte o [guia](DEMO_GUIDE.md).
+
+## MediaPipe Pose: inferência real
+
+Ambiente: Docker Linux x86_64/WSL2, Python 3.12, MediaPipe 0.10.31, NumPy 2.5.5 e `opencv-python-headless` 4.14.0.94. O modelo oficial **Pose Landmarker Lite, float16, versão 1** executou em CPU com TensorFlow Lite XNNPACK. O adaptador utiliza Tasks em modo `IMAGE`, uma pessoa por amostra, sem rastreamento temporal de identidade.
+
+Modelo: `storage/models/pose_landmarker_lite.task`, 5.777.746 bytes; SHA-256 `59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a`. A instalação, as variáveis e os comandos estão no [guia de pose](DEMO_GUIDE.md#12-preparar-e-demonstrar-pose-real).
+
+A arte de referência do avatar foi gerada por IA, sem fotografia ou filmagem de pessoa real. [create_pose_avatar.py](../scripts/create_pose_avatar.py) aplica articulação 2D determinística por triangulação. Os dois vídeos têm 960×864, 72 quadros, 12 fps e seis segundos. O caso `smooth` contém movimento suave; `abrupt` acrescenta uma translação horizontal descontínua de 240 pixels. Trata-se de um estímulo de teste conhecido, não de uma queda clínica simulada.
+
+O comando de validação real foi:
 
 ```powershell
-docker compose build api
-docker compose run --rm --no-deps api python -m pytest
+docker compose exec -T api python -m scripts.validate_pose_runtime --folder /app/storage/validation/final-readiness/pose
 ```
 
-`--no-deps` não sobe PostgreSQL; os testes usam SQLite próprio. Não executam reset do banco da aplicação. Diretórios temporários podem ser criados pelo Pytest, independentemente de o container compartilhar o volume de mídia operacional.
+| Medida observada | Movimento suave | Translação abrupta |
+|---|---:|---:|
+| Status | `completed` | `completed` |
+| Amostras aceitas/processadas | 24/24 | 24/24 |
+| Pontos corporais por pose | 33 | 33 |
+| Pares comparados | 23 | 23 |
+| Pico de deslocamento normalizado | 0.009745 | 0.250457 |
+| Limiar preservado | 0.15 | 0.15 |
+| Tempo da análise direta | 3.341 s | 4.471 s |
+| Tempo HTTP do processamento completo | 3.214 s | 2.935 s |
+| Eventos/alertas persistidos | 0/0 | 2/2 |
 
-## CI
+O caso abrupto gerou `abrupt_visual_change` no OpenCV e `pose_displacement_review` no MediaPipe. Análises diretas e resultados da API coincidiram; a releitura confirmou persistência e o reprocessamento retornou 409. Uma segunda passagem real gerou registros por amostra e vídeos com os pontos sobrepostos. O controle geométrico não produziu pose ou anomalia de pose e continuou produzindo a anomalia OpenCV esperada.
 
-[ci.yml](../.github/workflows/ci.yml) executa em pushes para `main` e pull requests destinados a `main`, com Ubuntu, Python 3.12, instalação editável `.[dev]` e comando `pytest`. Não há PostgreSQL, Azure real, teste de UI, lint, validação Mermaid ou limiar de cobertura nesse workflow.
+O paciente de pose foi `MG-POSE-A5D36EBB`. Os dados detalhados permanecem no diretório local ignorado `storage/validation/final-readiness/pose/`. Os tempos são observações específicas, influenciadas por inicialização, cache e CPU; não demonstram execução em tempo real.
 
-A diferença entre `pytest` configurado no CI e `python -m pytest` validado nesta revisão é uma observação de reprodutibilidade. O workflow não foi alterado no escopo documental. Um push isolado em `feature/multimodal-dashboard` não corresponde ao gatilho de push em `main`.
+`compared_pairs` conta apenas pares consecutivos aceitos. Poses separadas por falhas de detecção não são comparadas; sem pares, `peak_displacement` é `null`. O teste dessa condição utiliza simulações, sem se confundir com o ensaio real acima.
 
-## Dashboard: validação manual
+## API, dashboard e preservação
 
-Não há testes automatizados Streamlit/AppTest na suíte atual. A equipe informou confirmação visual anterior da demonstração no Dashboard v2; isso é evidência histórica, sem garantia de regressão.
+As 26 verificações contra a API real cobriram pacientes, medições, mídia, tarefas, relatórios em `result.analysis`, correlação, reprocessamento, entradas inválidas e revisão de alertas. Foram observados os códigos esperados 200, 201, 404, 409, 415 e 422, conforme o contrato. Não existe uma rota `/reports`; os relatórios são obtidos de `GET /jobs` e `GET /jobs/{job_id}`.
 
-Checklist reproduzível:
+As 21 etapas com Streamlit AppTest executaram o aplicativo completo contra a API real: seleção de paciente, indicadores, filtros de período e origem, repetição da correlação, relatórios de áudio/vídeo/pose, reconhecimento e resolução de alertas e estado vazio. Não houve exceções ou elementos de erro. Essas etapas não integram a contagem dos 77 testes Pytest.
 
-1. Abrir `http://localhost:8501` e aba **Monitoramento multimodal**.
-2. Selecionar paciente do resumo do script, período **Todos**, atualizar.
-3. Comparar KPIs com `GET /events`, `/alerts` e medições por paciente.
-4. Conferir gráficos vazios, amostra isolada e série com múltiplas medições.
-5. Abrir trio e verificar IDs, origens, janela e amplitude temporal.
-6. Repetir correlação sem novas origens e observar zero novos eventos.
-7. Conferir linha do tempo, filtro de origem e tabela de alertas por status.
-8. Considerar aviso de 500 registros, períodos locais e fallback para resumos de origens fora do recorte.
+Hashes de conteúdo confirmaram a preservação de **221 registros originais em nove tabelas**. As validações acrescentaram apenas cenários sintéticos próprios. Não houve exclusão de dados, reinicialização de volumes ou migração nessa revisão operacional. Os comandos e resultados completos estão em [Prontidão técnica](READINESS.md).
 
-Esse checklist não foi reaplicado visualmente nesta revisão documental; permanece um ensaio recomendado antes da apresentação.
+## Integração contínua
 
-## Cenário ponta a ponta
+[ci.yml](../.github/workflows/ci.yml) utiliza Ubuntu, Python 3.12, instalação editável `.[dev]` e `python -m pytest`, em envios e solicitações de integração destinados a `main`. Não executa Azure real, PostgreSQL, modelo de pose, AppTest operacional, inspeção visual, análise estática ou limiar de cobertura. A configuração foi conferida localmente; não se declara execução remota do GitHub Actions nesta validação.
 
-O [guia de demonstração](DEMO_GUIDE.md) usa `scripts/demo_multimodal.py`, API real, PostgreSQL, mídia local, OpenCV e Azure. É uma validação operacional distinta da suíte isolada e requer preparação de WAV e credenciais. O `PASS` exige trio e repetição vazia, não contagens fixas de eventos/alertas. Sua execução cria dados educacionais persistentes; não é realizada automaticamente pela CI.
+## Limitações e inspeção manual
 
-## O que ainda não é garantido
+- `pip check` retorna 1 pela inconsistência de tag no wheel oficial MediaPipe 0.10.31. A [investigação](READINESS.md#exceção-de-empacotamento-do-mediapipe) preserva esse resultado, sem alterar metadados do fornecedor.
+- A pose foi validada em um avatar frontal com fundo claro. Não há evidência de generalização para oclusões, outros enquadramentos ou múltiplas pessoas.
+- A métrica utiliza ombros/quadris normalizados; não mede velocidade física, articulação de membros ou risco clínico. Câmera, perspectiva e amostragem influenciam o resultado.
+- Os pontos persistidos são os da última pose aceita, não uma trajetória completa. Os registros detalhados do ensaio são artefatos locais separados.
+- Não houve ensaio de carga, concorrência PostgreSQL, restauração integral de cópia de segurança ou compatibilidade de todos os formatos e versões.
+- Inspecione manualmente disposição visual, textos, tabelas, gráficos, navegação por teclado, envio de arquivo pelo navegador e legibilidade dos vídeos externos antes de apresentar.
 
-- Validade clínica, diagnóstico, causalidade ou detecção de risco.
-- Disponibilidade/performance Azure, precisão textual ou qualidade de fala.
-- Concorrência real PostgreSQL, recuperação de jobs presos ou consistência atômica entre disco e banco.
-- Segurança de produção, autenticação, retenção e tratamento automático de dados pessoais.
-- Compatibilidade de todos os codecs, plataformas, fusos ou versões futuras de dependências.
-- Todos os endpoints/erros, todas as regras operacionais e limites de 30/100/500 registros.
-- Interface sem regressão, migração em produção, backup/restauração e desempenho sob carga.
-
-Prioridades recomendadas: corrigir a invocação CI após decisão da equipe, testes PostgreSQL/concorrência, testes automatizados de UI e falhas de integração. Não ampliar alegações com base apenas no número total de testes aprovados.
-
-## Revis?o desta documenta??o
-
-Em 13/11/2026, foram realizadas tamb?m:
-
-- Confer?ncia dos 22 endpoints de dom?nio extra?dos dos decoradores de rotas e da rota de sa?de, com a refer?ncia escrita.
-- Valida??o dos exemplos de entrada de paciente, medi??o, prescri??o, movimenta??o, status de alerta e resposta de sa?de pelos schemas Pydantic no container.
-- Execu??o de `python -m scripts.demo_multimodal --help` no container, sem criar dados.
-- Confer?ncia de links relativos, ?ncoras Markdown e exist?ncia dos destinos citados nos links.
-- Valida??o sint?tica dos oito diagramas com o parser Mermaid 11 em ambiente tempor?rio, sem adicionar depend?ncias ao projeto.
-- An?lise sint?tica dos 31 blocos PowerShell, sem erros.
-- Consulta somente de leitura ao OpenAPI ativo: 23 opera??es, incluindo sa?de; `/health` retornou `ok`.
-- Verifica??o de espa?os/finais de linha e `git diff --check`.
-
-N?o foram repetidos build completo, migra??o sobre PostgreSQL operacional, cria??o de um novo cen?rio Azure ou inspe??o visual da interface. Os comandos de instala??o/subida/migra??o foram revisados contra a configura??o e o c?digo, mas n?o foram todos executados nesta revis?o. O teste de migra??o executado pela su?te usa SQLite isolado. N?o houve altera??o de l?gica, esquema operacional, frontend, commits ou push.
+Não há validação clínica, garantia de segurança de produção, diagnóstico ou demonstração de causalidade entre modalidades.
+'''

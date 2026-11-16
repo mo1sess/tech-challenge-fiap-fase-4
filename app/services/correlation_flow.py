@@ -18,12 +18,9 @@ AUDIO_EVENT_TYPES = {
 
 
 def as_utc(value: datetime) -> datetime:
-    """
-    Normalize datetimes for comparison.
+    """Normaliza datas para comparação.
 
-    SQLite may return naive timestamps; the application
-    stores timestamps using UTC.
-    """
+    O SQLite pode retornar datas sem fuso horário; a aplicação armazena datas em UTC."""
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
 
@@ -36,14 +33,10 @@ def correlate_audio_and_vitals(
     patient_id: str,
     window_minutes: int = 5,
 ) -> list[ClinicalEvent]:
-    """
-    Correlate existing synthetic audio and vital-sign events.
+    """Correlaciona eventos sintéticos existentes de áudio e sinais vitais.
 
-    Correlation is based only on patient identity and
-    temporal proximity, not clinical causality.
-
-    Returns newly created correlation events.
-    """
+    Considera apenas o mesmo paciente e a proximidade temporal, sem causalidade clínica.
+    Retorna os novos eventos de correlação."""
 
     patient = db.get(Patient, patient_id)
 

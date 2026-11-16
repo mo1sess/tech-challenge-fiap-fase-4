@@ -8,7 +8,7 @@ from typing import Any
 try:
     import cv2
     import numpy as np
-except ModuleNotFoundError:  # Allows the API to explain a missing video extra at runtime.
+except ModuleNotFoundError:  # Permite informar a ausência das dependências de vídeo durante a execução.
     cv2 = None
     np = None
 
@@ -20,7 +20,7 @@ DISCLAIMER = (
 
 
 class VideoProcessingError(RuntimeError):
-    """Raised when a video cannot be decoded or analyzed safely."""
+    """Erro de decodificação ou análise segura de um vídeo."""
 
 
 def _require_opencv() -> None:
@@ -86,7 +86,7 @@ def analyze_video(
     abrupt_motion_threshold: float = 20.0,
     max_frames: int = 900,
 ) -> VideoAnalysis:
-    """Analyze global frame-to-frame motion without identifying a person."""
+    """Analisa a variação global entre quadros sem identificar pessoas."""
     _require_opencv()
     if not media_path.exists():
         raise VideoProcessingError("Video file was not found")
@@ -180,7 +180,7 @@ def create_synthetic_low_motion_video(
     width: int = 320,
     height: int = 240,
 ) -> Path:
-    """Create a deterministic geometric video containing no person or medical data."""
+    """Cria um vídeo geométrico determinístico, sem pessoas ou dados médicos."""
     _require_opencv()
     destination.parent.mkdir(parents=True, exist_ok=True)
     writer = cv2.VideoWriter(

@@ -26,7 +26,7 @@ SEVERITY_RANK = {
 
 
 def evaluate_vital_signs(measurement: ClinicalMeasurement) -> list[Detection]:
-    """Apply illustrative rules to synthetic values only."""
+    """Aplica regras demonstrativas exclusivamente a valores sintéticos."""
     detections: list[Detection] = []
 
     if measurement.heart_rate_bpm is not None:

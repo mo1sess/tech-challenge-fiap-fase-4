@@ -1,73 +1,73 @@
-﻿# MedGuard AI
+# MedGuard AI
 
-Plataforma educacional de monitoramento multimodal para o **Tech Challenge FIAP — Fase 4**. Integra medições sintéticas, vídeo, áudio fictício, prescrições e movimentações em eventos rastreáveis, alertas demonstrativos e uma linha do tempo por paciente.
+Plataforma educacional de monitoramento multimodal para o **Tech Challenge FIAP — Fase 4**. Integra vídeo, fala sintética, sinais vitais fictícios, prescrições e movimentações em eventos rastreáveis, alertas demonstrativos e uma linha do tempo por paciente.
 
-O objetivo de software é reunir fontes distintas e tornar sua análise temporal inspecionável, permitindo reprodução do ambiente, demonstração e continuidade do desenvolvimento.
+O problema abordado é a fragmentação de informações provenientes de fontes distintas. O objetivo é reunir essas informações em uma arquitetura reproduzível, permitir a inspeção de regras e evidências e demonstrar coocorrências temporais entre modalidades.
 
-> Uso exclusivamente educacional com dados fictícios ou sintéticos. Não é um dispositivo médico e não deve orientar decisões clínicas. Correlação significa **coocorrência temporal**, sem estabelecer causalidade ou diagnóstico. Limites e severidades são exemplos de regras de software.
+> Uso exclusivamente educacional, com dados fictícios ou sintéticos. O sistema não é um dispositivo médico, não estabelece diagnóstico e não deve orientar decisões clínicas. Correlação significa coocorrência temporal, sem comprovar causalidade. Limiares e severidades são regras demonstrativas de software.
 
 ## Documentação
 
-| Documento                           | Conteúdo                                                                       |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| [Arquitetura](docs/ARCHITECTURE.md) | Componentes, fluxos, regras, correlação v2, dados e decisões                   |
-| [Diagramas](docs/DIAGRAMS.md)       | Oito diagramas Mermaid de arquitetura, processamento, entidades e demonstração |
-| [API](docs/API_REFERENCE.md)        | Endpoints, parâmetros, contratos, exemplos e erros                             |
-| [Demonstração](docs/DEMO_GUIDE.md)  | Preparação, execução, interpretação e roteiro de 5–8 minutos                   |
-| [Testes](docs/TESTING.md)           | Estratégia, comandos reproduzíveis, evidências e lacunas                       |
+| Documento | Conteúdo |
+|---|---|
+| [Arquitetura](docs/ARCHITECTURE.md) | Componentes, algoritmos, persistência, integrações e decisões técnicas |
+| [Diagramas](docs/DIAGRAMS.md) | Dez diagramas Mermaid dos componentes e fluxos implementados |
+| [Referência da API](docs/API_REFERENCE.md) | Rotas, contratos, parâmetros, respostas e exemplos |
+| [Guia de demonstração](docs/DEMO_GUIDE.md) | Configuração, modelo de pose, preparação das mídias e roteiro |
+| [Testes](docs/TESTING.md) | Comandos, cobertura funcional e evidências de validação |
+| [Prontidão técnica](docs/READINESS.md) | Resultados consolidados, limitações e verificações de entrega |
 
-## Funcionalidades implementadas
+## Funcionalidades
 
-- Cadastro de pacientes fictícios; avaliação pontual de medições e tendências de quatro registros.
-- Upload de mídia sintética, hash SHA-256 e jobs rastreáveis.
-- Análise de variação visual com OpenCV, sem identificação de pessoas ou interpretação clínica.
-- Transcrição WAV com Azure Speech em `pt-BR`, métricas acústicas e regras textuais contextuais.
+- Cadastro de pacientes fictícios e avaliação pontual e temporal de sinais vitais.
+- Envio de mídia sintética, identificação SHA-256 e tarefas de processamento rastreáveis (`jobs`).
+- Análise de variação visual com OpenCV e inferência opcional de pose com MediaPipe Tasks.
+- Transcrição WAV com Azure Speech-to-Text em `pt-BR`, métricas acústicas e regras textuais contextuais.
+- Análise opcional de sentimento e entidades gerais com Azure AI Language em português (`pt`).
 - Verificação de sequências de prescrições fictícias e continuidade de movimentações.
-- Eventos e alertas nos fluxos demonstrativos; áudio e correlação não criam alertas.
-- Correlação v1 de áudio–sinais vitais e v2 de áudio, vídeo e sinais vitais com deduplicação e unicidade persistente.
-- Dashboard v2 com KPIs, gráficos, explorador de correlações, linha do tempo e alertas.
+- Eventos e alertas nos fluxos de sinais vitais, vídeo e anomalias operacionais; áudio e correlação não criam alertas.
+- Correlação v1 entre áudio e sinais vitais; correlação v2 entre áudio, vídeo e sinais vitais, com deduplicação e unicidade persistente.
+- Dashboard com indicadores, gráficos, relatórios de mídia, linha do tempo e revisão de alertas com histórico.
 
 ## Arquitetura e tecnologias
 
-Monólito modular: Streamlit → REST → FastAPI → serviços → processadores e SQLAlchemy → PostgreSQL. Mídias ficam no sistema de arquivos. O processamento ocorre durante a requisição HTTP, sem fila ou worker externo.
+Monólito modular: **Streamlit → REST → FastAPI → serviços e processadores → SQLAlchemy → PostgreSQL**. As mídias permanecem no sistema de arquivos. O processamento ocorre durante a requisição HTTP, sem fila ou processo executor externo.
 
-| Tecnologia                       | Responsabilidade                          |
-| -------------------------------- | ----------------------------------------- |
-| Python 3.11+; imagem Python 3.12 | Linguagem e ambiente                      |
-| FastAPI e Pydantic               | API REST, OpenAPI e contratos             |
-| SQLAlchemy e psycopg             | Acesso relacional e conexão PostgreSQL    |
-| PostgreSQL 16                    | Persistência no Compose                   |
-| Streamlit 1.52+ e pandas         | Interface e gráficos                      |
-| OpenCV e NumPy                   | Vídeo e métricas acústicas                |
-| Azure Speech SDK                 | Transcrição externa de fala sintética     |
-| Docker e Docker Compose          | Serviços, volumes e verificações de saúde |
-| Pytest e HTTPX                   | Testes de regras, banco e API             |
+| Tecnologia | Responsabilidade |
+|---|---|
+| Python 3.11+; imagem Python 3.12 | Linguagem e ambiente de execução |
+| FastAPI e Pydantic | API REST, OpenAPI e validação de contratos |
+| SQLAlchemy, psycopg e PostgreSQL 16 | Persistência relacional |
+| Streamlit e pandas | Interface, relatórios e gráficos |
+| OpenCV e NumPy | Decodificação de vídeo, variação visual e métricas acústicas |
+| MediaPipe Pose Landmarker 0.10.31 | Inferência opcional de 33 pontos corporais em CPU |
+| Azure Speech SDK | Transcrição de fala sintética |
+| Azure AI Language | Sentimento e reconhecimento de entidades gerais |
+| Docker e Docker Compose | Serviços, armazenamento e verificações de saúde |
+| Pytest, HTTPX e Streamlit AppTest | Testes automatizados e verificações operacionais da interface |
 
-Versões efetivas em [pyproject.toml](pyproject.toml). Não há arquivo de versões travadas. O dashboard importa `pandas`, disponível como dependência transitiva do Streamlit, sem declaração direta no projeto.
-
-## Estrutura
+As dependências estão em [pyproject.toml](pyproject.toml). MediaPipe está fixado em `0.10.31`; as demais dependências usam faixas de versões. Não há arquivo completo de versões travadas.
 
 ```text
-app/
-  api/routes/       pacientes, fluxos clínicos, mídia, jobs, demos e correlação
-  core/             configuração
-  db/               modelos, verificação e migração de esquema
-  modules/audio/    Azure Speech, acústica e regras textuais
-  modules/video/    OpenCV e vídeo geométrico
-  schemas/          contratos Pydantic
-  services/         orquestração, regras, eventos e alertas
-dashboard/          app.py e multimodal_v2.py
-scripts/            demo_multimodal.py
-samples/            vitals_demo.csv
-storage/            mídia local
+app/api/routes/     rotas de pacientes, mídia, eventos, alertas e correlação
+app/core/           configuração
+app/db/             modelos, verificação e migrações aditivas
+app/modules/audio/  Azure Speech, Azure AI Language, acústica e análise textual
+app/modules/video/  OpenCV e MediaPipe Pose
+app/schemas/        contratos Pydantic
+app/services/       orquestração, regras, eventos e alertas
+dashboard/          aplicação Streamlit e relatórios
+scripts/            demonstrações e validação operacional
+samples/            exemplo de medições sintéticas
+storage/            dados e modelos locais, fora do versionamento
 tests/              testes automatizados
 docs/               documentação técnica
-.github/workflows/  CI para main
+.github/workflows/  integração contínua
 ```
 
-## Pré-requisitos e configuração
+## Instalação e configuração
 
-Execução recomendada: Docker Desktop ativo com containers Linux e Docker Compose. Azure Speech e rede são necessários para transcrição fora dos mocks. Desenvolvimento local: Python 3.11+, `pip` e ambiente virtual.
+Requisitos: Docker Desktop com contêineres Linux e Docker Compose. A transcrição real e o enriquecimento textual exigem recursos Azure, rede e credenciais locais. A pose exige preparação explícita, descrita no [guia](docs/DEMO_GUIDE.md#12-preparar-e-demonstrar-pose-real).
 
 Na raiz, crie `.env` somente se ainda não existir:
 
@@ -75,9 +75,7 @@ Na raiz, crie `.env` somente se ainda não existir:
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-Revise [.env.example](.env.example). Use valores próprios de banco localmente; os padrões são de desenvolvimento. Nunca versione segredos. Não exponha este ambiente na internet: não há autenticação implementada.
-
-### Docker Compose
+Revise [.env.example](.env.example). Configure `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` para transcrição; `AZURE_LANGUAGE_ENDPOINT` e `AZURE_LANGUAGE_KEY` habilitam sentimento e entidades. Os padrões de banco são apenas para desenvolvimento. Não versione credenciais nem exiba `.env` durante a apresentação.
 
 Para um banco novo:
 
@@ -86,25 +84,19 @@ docker compose up -d --build
 docker compose ps
 ```
 
-| Acesso    | Endereço padrão                    |
-| --------- | ---------------------------------- |
-| Dashboard | http://localhost:8501              |
-| Swagger   | http://localhost:8000/docs         |
-| OpenAPI   | http://localhost:8000/openapi.json |
-| API       | http://localhost:8000/api/v1       |
-| Saúde     | http://localhost:8000/health       |
+| Recurso | Endereço padrão |
+|---|---|
+| Dashboard | http://localhost:8501 |
+| Swagger | http://localhost:8000/docs |
+| OpenAPI | http://localhost:8000/openapi.json |
+| API | http://localhost:8000/api/v1 |
+| Saúde da aplicação | http://localhost:8000/health |
 
-`/health` informa o estado da aplicação sem consultar o banco. O dashboard acrescenta `/api/v1` a `API_BASE_URL`: alterar somente `API_PREFIX` quebra essa integração.
-
-Para parar preservando os volumes:
-
-```powershell
-docker compose down
-```
+`/health` não consulta o banco. O dashboard acrescenta `/api/v1` a `API_BASE_URL`; alterar somente `API_PREFIX` rompe essa integração. Alterações no código exigem reconstruir a imagem; alterações no `.env` exigem recriar o serviço correspondente. Para parar sem remover volumes, execute `docker compose down`, sem a opção `-v`.
 
 ### Migração segura de PostgreSQL existente
 
-`create_all()` não altera tabelas antigas. Para volume anterior à coluna `clinical_events.correlation_key`, mantenha uma cópia de segurança sob responsabilidade do operador e execute em janela de manutenção:
+`create_all()` cria tabelas ausentes, mas não altera tabelas antigas. Para um volume anterior à coluna `clinical_events.correlation_key`, mantenha uma cópia de segurança local e execute em janela de manutenção:
 
 ```powershell
 docker compose up -d db
@@ -115,19 +107,9 @@ docker compose up -d
 docker compose ps
 ```
 
-Aguarde o banco saudável antes da migração. Ela é transacional e repetível. No PostgreSQL usa `ACCESS EXCLUSIVE`, bloqueando o acesso concorrente à tabela. Adiciona a coluna anulável, preenche fingerprints e cria índice único. Duplicatas históricas ficam com chave `NULL`; nenhum registro é excluído. O comando pressupõe a tabela existente; um banco vazio deve ser inicializado pela API. A API recusa esquema pendente. Detalhes em [Arquitetura](docs/ARCHITECTURE.md#persistência-e-migração).
+Aguarde o banco saudável antes da migração. O procedimento é transacional e repetível: adiciona a coluna, preenche identificadores de correlação e cria o índice único. Duplicatas históricas permanecem com chave `NULL`; nenhum registro é excluído. No PostgreSQL, o bloqueio `ACCESS EXCLUSIVE` impede acesso concorrente à tabela durante a operação. Um banco vazio deve ser inicializado pela API, não por essa migração.
 
-O procedimento anterior também registrava, para problemas específicos de build legado, `$env:DOCKER_BUILDKIT = "0"` e `$env:COMPOSE_DOCKER_CLI_BUILD = "0"` antes do build; não são requisitos gerais.
-
-### Azure Speech
-
-Preencha apenas no `.env` local `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` com os valores do recurso Speech. Para aplicar mudanças:
-
-```powershell
-docker compose up -d --force-recreate api
-```
-
-O adaptador usa `recognize_once_async()` em `pt-BR`, sem transcrição contínua. `AZURE_LANGUAGE_ENDPOINT` e `AZURE_LANGUAGE_KEY` são configurações reservadas, sem integração ativa. A análise textual é local e determinística. Use WAV inteiramente sintético, PCM de 16 bits sem compressão.
+A tabela aditiva `alert_review_actions` é criada na inicialização quando ausente. Há também o comando `python -m app.db.migrate_alert_reviews`, repetível e dependente da tabela `alerts` já existente. Consulte [persistência e migração](docs/ARCHITECTURE.md#persistência-e-migração).
 
 ### Execução local
 
@@ -140,33 +122,37 @@ $env:STORAGE_DIR = "storage/uploads"
 python -m uvicorn app.main:app --reload
 ```
 
-SQLite permite desenvolvimento e testes, mas não reproduz integralmente PostgreSQL. Para PostgreSQL local, use uma URL acessível pela máquina; `db` é o host interno do Compose. Em outro terminal com o ambiente virtual ativo:
+Em outro terminal, com o ambiente virtual ativo:
 
 ```powershell
 $env:API_BASE_URL = "http://localhost:8000"
 python -m streamlit run dashboard/app.py
 ```
 
+SQLite permite desenvolvimento e testes, mas não reproduz integralmente PostgreSQL. O nome `db` é exclusivo da rede interna do Compose; conexões locais precisam de uma URL acessível pelo computador.
+
 ## Testes e demonstração
 
 ```powershell
-docker compose exec api python -m pytest
+docker compose exec -T api python -m pytest
 ```
 
-Localmente, após instalar dependências: `python -m pytest`. Prefira invocação por módulo para resolver imports entre arquivos de `tests/`. Consulte [Testes](docs/TESTING.md) para evidências e limitações.
+Localmente, após instalar as dependências: `python -m pytest`. A validação consolidada registrou **77 testes aprovados**, **26 verificações da API** e **21 etapas com Streamlit AppTest**, além de Azure e pose reais. Testes com simulações e inferência real são evidências distintas; detalhes em [Testes](docs/TESTING.md).
 
-A demonstração usa endpoints públicos e gera paciente e vídeo próprios. O WAV é uma preparação local, não um arquivo garantido pelo Git:
+Após preparar um WAV inteiramente sintético, PCM de 16 bits sem compressão:
 
 ```powershell
-docker compose exec api python -m scripts.demo_multimodal --audio /app/storage/test_audio2.wav --api-url http://localhost:8000/api/v1
+docker compose exec -T api python -m scripts.demo_multimodal --audio /app/storage/test_audio2.wav --api-url http://localhost:8000/api/v1
 ```
 
-O [guia](docs/DEMO_GUIDE.md) explica preparação, resultado histórico `PASS`, Dashboard v2 e idempotência. Demos isoladas: `POST /api/v1/demo/vital-alert` e `POST /api/v1/demo/video-alert`; usam pacientes próprios e não substituem o cenário integrado.
+O WAV não é distribuído pelo Git. O script cria paciente e vídeo geométrico próprios, processa as fontes, verifica um trio e repete a correlação para conferir idempotência. A demonstração positiva de MediaPipe utiliza vídeos de avatar separados, conforme o [guia](docs/DEMO_GUIDE.md).
 
-## Segurança, limitações e próximos passos
+## Segurança e limitações
 
-A marca sintética é declarada pelo remetente; não há detecção automática de dados pessoais. Não envie dados reais, segredos, gravações pessoais ou backups ao Git. Não há autenticação, autorização, TLS configurado pelo projeto, retenção automática ou auditoria completa. CORS não é controle de acesso.
+A marca sintética é declarada pelo remetente; não há detecção automática de dados pessoais. Não envie dados reais, vozes pessoais ou imagens de pacientes. Credenciais, cópias de banco, modelos e mídias geradas ficam fora do Git. Não há autenticação, autorização, TLS configurado pelo projeto, retenção automática ou auditoria de identidade real. Este ambiente não deve ser exposto à internet.
 
-Uploads têm limite de tamanho e extensão; o conteúdo é validado na decodificação. Não há antivírus, deduplicação de mídia por hash ou transação atômica entre arquivo e banco. Jobs são síncronos; falhas inesperadas podem exigir intervenção. O dashboard consulta recortes recentes, sem atualização periódica automática.
+As tarefas são síncronas; não há recuperação automática de processamento interrompido nem transação atômica entre disco e banco. O dashboard consulta recortes recentes, sem paginação integral ou atualização periódica automática. A unicidade da correlação foi verificada, mas não houve ensaio de concorrência PostgreSQL sob carga.
 
-Evoluções: dependências diretas e versões travadas, autenticação, testes PostgreSQL/concorrência, paginação, processamento assíncrono, observabilidade e testes da interface. Pose, YOLO e MediaPipe não estão integrados. A equipe ainda deve preparar apresentação e vídeo final da FIAP.
+MediaPipe utiliza CPU e modo `IMAGE`, sem rastreamento temporal de identidade. A métrica mede deslocamento normalizado de ombros e quadris; não representa velocidade física, queda, dor ou risco clínico. O modelo oficial Lite é instalado separadamente. `pip check` apresenta uma exceção de metadados do wheel oficial `0.10.31`, apesar de importação e inferência real funcionarem no ambiente validado. Essa falha permanece documentada em [Prontidão técnica](docs/READINESS.md#exceção-de-empacotamento-do-mediapipe).
+
+Antes da apresentação, inspecione o navegador, prepare o roteiro e confira os materiais de entrega. Não há alegação de validação clínica, execução em tempo real ou conformidade integral com critérios de avaliação não fornecidos.

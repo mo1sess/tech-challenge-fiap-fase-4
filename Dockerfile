@@ -7,11 +7,13 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY app ./app
+
+ARG INSTALL_POSE=false
+RUN if [ "$INSTALL_POSE" = "true" ]; then pip install --no-cache-dir ".[dev,pose]"; else pip install --no-cache-dir ".[dev]"; fi
+
 COPY dashboard ./dashboard
 COPY tests ./tests
 COPY scripts ./scripts
-
-RUN pip install --no-cache-dir ".[dev]"
 
 RUN mkdir -p /app/storage/uploads
 

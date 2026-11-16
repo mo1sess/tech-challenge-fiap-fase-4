@@ -1,2 +1,2 @@
-"""Database models and session helpers."""
+"""Modelos de banco de dados e utilitários de sessão."""
 

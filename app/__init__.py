@@ -1,2 +1,2 @@
-"""MedGuard AI application package."""
+"""Pacote da aplicação MedGuard AI."""
 

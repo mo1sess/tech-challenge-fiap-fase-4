@@ -1,8 +1,7 @@
-"""Reproducible, educational MedGuard AI three-source demo.
+"""Demonstração educacional reprodutível com três fontes do MedGuard AI.
 
-Run inside the API container so OpenCV, Azure config and the audio fixture
-are available. Uses existing public REST endpoints; no direct DB mutation.
-"""
+Execute no contêiner da API, com OpenCV, configuração Azure e WAV sintético
+disponíveis. Utiliza as rotas REST existentes, sem alteração direta do banco."""
 from __future__ import annotations
 
 import argparse
@@ -38,10 +37,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--audio", type=Path, required=True,
-        help="Existing WAV file containing entirely fictional, synthetic spoken words in pt-BR",
+        help="Arquivo WAV existente com fala inteiramente fictícia e sintética em pt-BR",
     )
     parser.add_argument("--api-url", default="http://localhost:8000/api/v1")
-    parser.add_argument("--window", type=int, default=5, help="Correlation window in minutes (1-60)")
+    parser.add_argument("--window", type=int, default=5, help="Janela de correlação em minutos (1–60)")
     parser.add_argument("--patient-code", default=None)
     args = parser.parse_args()
 

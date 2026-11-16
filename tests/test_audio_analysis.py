@@ -9,7 +9,7 @@ pytestmark = pytest.mark.anyio
 
 
 def create_synthetic_wav() -> bytes:
-    """Generate a valid 1-second synthetic WAV file."""
+    """Gera um WAV sintético válido com duração de um segundo."""
     buffer = io.BytesIO()
 
     with wave.open(buffer, "wb") as wav:
@@ -17,7 +17,7 @@ def create_synthetic_wav() -> bytes:
         wav.setsampwidth(2)
         wav.setframerate(16000)
 
-        # One second of silence, 16-bit PCM mono
+        # Um segundo de silêncio em PCM mono de 16 bits.
         wav.writeframes(b"\x00\x00" * 16000)
 
     return buffer.getvalue()
@@ -28,7 +28,7 @@ async def test_audio_job_transcribes_and_persists_result(
     patient: dict,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Validate the complete audio processing workflow."""
+    """Valida o fluxo completo de processamento de áudio."""
 
     def fake_transcribe(*args, **kwargs):
         return {
@@ -38,13 +38,13 @@ async def test_audio_job_transcribes_and_persists_result(
             "text": "Estou sentindo dor de cabeca.",
         }
 
-    # Mock Azure Speech to avoid external API calls.
+    # Simula o Azure Speech para evitar chamadas à API externa.
     monkeypatch.setattr(
         "app.services.audio_flow.transcribe_wav",
         fake_transcribe,
     )
 
-    # 1. Upload synthetic audio
+    # 1. Envia o áudio sintético.
     uploaded = await client.post(
         f"/api/v1/patients/{patient['id']}/media",
         files={
@@ -70,7 +70,7 @@ async def test_audio_job_transcribes_and_persists_result(
 
     job_id = upload_body["job"]["id"]
 
-    # 2. Process the audio job
+    # 2. Processa a tarefa de áudio.
     processed = await client.post(
         f"/api/v1/jobs/{job_id}/process"
     )
@@ -85,7 +85,7 @@ async def test_audio_job_transcribes_and_persists_result(
     assert job["progress"] == 100.0
     assert job["error"] is None
 
-    # 3. Validate Azure Speech transcription
+    # 3. Valida a transcrição do Azure Speech.
     transcription = analysis["transcription"]
 
     assert transcription["provider"] == "azure_speech"
@@ -95,7 +95,7 @@ async def test_audio_job_transcribes_and_persists_result(
         "Estou sentindo dor de cabeca."
     )
 
-    # 4. Validate acoustic analysis
+    # 4. Valida a análise acústica.
     acoustic = analysis["acoustic"]
 
     assert acoustic["duration_seconds"] == pytest.approx(1.0)
@@ -106,7 +106,7 @@ async def test_audio_job_transcribes_and_persists_result(
     assert acoustic["silence_ratio"] == pytest.approx(1.0)
     assert acoustic["clipping_ratio"] == pytest.approx(0.0)
 
-    # 5. Validate contextual text analysis
+    # 5. Valida a análise textual contextual.
     text_analysis = analysis["text_analysis"]
 
     assert text_analysis["analyzer"] == (
@@ -121,7 +121,7 @@ async def test_audio_job_transcribes_and_persists_result(
         for finding in text_analysis["findings"]
     )
 
-    # 6. Validate generated review event
+    # 6. Valida o evento de revisão gerado.
     assert len(body["events"]) == 1
 
     event = body["events"][0]
@@ -136,12 +136,12 @@ async def test_audio_job_transcribes_and_persists_result(
     assert event["payload"]["job_id"] == job_id
     assert event["payload"]["requires_human_review"] is True
 
-    # One event for this signal, no automatic medical alerts.
+    # Um evento para este sinal, sem alertas médicos automáticos.
     assert job["result"]["event_ids"] == [event["id"]]
     assert job["result"]["alert_ids"] == []
     assert body["alerts"] == []
 
-    # 7. Verify persistence through the jobs endpoint
+    # 7. Verifica a persistência pela rota de tarefas.
     persisted = await client.get(
         f"/api/v1/jobs/{job_id}"
     )
@@ -170,7 +170,7 @@ async def test_audio_job_transcribes_and_persists_result(
 
     assert persisted_job["result"]["event_ids"] == [event["id"]]
 
-    # 8. Verify event persistence through clinical events endpoint
+    # 8. Verifica a persistência pela rota de eventos clínicos.
     events_response = await client.get(
         f"/api/v1/events?patient_id={patient['id']}"
     )
@@ -185,14 +185,14 @@ async def test_audio_job_transcribes_and_persists_result(
         for item in persisted_events
     )
 
-    # 9. Verify completed jobs cannot be processed twice
+    # 9. Verifica o bloqueio de reprocessamento de tarefas concluídas.
     repeated = await client.post(
         f"/api/v1/jobs/{job_id}/process"
     )
 
     assert repeated.status_code == 409
 
-    # 10. Verify no duplicate events were created
+    # 10. Verifica a ausência de eventos duplicados.
     events_after_retry = await client.get(
         f"/api/v1/events?patient_id={patient['id']}"
     )

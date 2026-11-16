@@ -1,13 +1,13 @@
 
 import wave
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
 
 
 class AcousticAnalysisError(ValueError):
-    """Raised when acoustic analysis cannot process an audio file."""
+    """Erro de processamento de um arquivo na análise acústica."""
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,13 @@ class AcousticAnalysis:
     peak_amplitude: float
     silence_ratio: float
     clipping_ratio: float
+    window_energy: list[dict] = field(default_factory=list)
+    intensity_std: float = 0.0
+    pause_count: int = 0
+    longest_pause_seconds: float = 0.0
+    window_ms: int = 100
+    silence_threshold: float = 0.01
+    limitations: str = "Energia e pausas observáveis; silêncio não equivale a pausa respiratória. Sem inferência de fadiga ou diagnóstico."
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -73,26 +80,37 @@ def analyze_acoustics(
 
     frames = normalized.reshape(-1, channels)
 
-    # Average channels to calculate window-level energy.
+    # Calcula a média dos canais para obter a energia de cada janela.
     mono = frames.mean(axis=1)
 
     rms = float(np.sqrt(np.mean(normalized**2)))
     peak = float(np.max(np.abs(normalized)))
 
-    # Each window represents approximately 100 ms by default.
+    # Cada janela representa aproximadamente 100 ms por padrão.
     window_samples = max(1, int(sample_rate * window_ms / 1000))
 
     silent_windows = 0
     total_windows = 0
+    energies = []
+    pause_count = 0
+    pause_duration = 0.0
+    longest_pause = 0.0
 
     for start in range(0, len(mono), window_samples):
         window = mono[start:start + window_samples]
 
         window_rms = float(np.sqrt(np.mean(window**2)))
+        energies.append({"start_seconds": round(start / sample_rate, 6), "duration_seconds": len(window) / sample_rate, "rms": round(window_rms, 6)})
 
         total_windows += 1
         if window_rms < silence_threshold:
             silent_windows += 1
+            if pause_duration == 0:
+                pause_count += 1
+            pause_duration += len(window) / sample_rate
+            longest_pause = max(longest_pause, pause_duration)
+        else:
+            pause_duration = 0.0
 
     silence_ratio = silent_windows / total_windows
 
@@ -108,4 +126,10 @@ def analyze_acoustics(
         peak_amplitude=round(peak, 6),
         silence_ratio=round(silence_ratio, 6),
         clipping_ratio=round(clipping_ratio, 6),
+        window_energy=energies,
+        intensity_std=round(float(np.std([e["rms"] for e in energies])), 6),
+        pause_count=pause_count,
+        longest_pause_seconds=round(longest_pause, 6),
+        window_ms=window_ms,
+        silence_threshold=silence_threshold,
     )

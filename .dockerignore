@@ -4,4 +4,18 @@ __pycache__
 .pytest_cache
 .env
 storage/uploads/*
+storage/
+work/
+**/__pycache__/
+**/*.py[cod]
+.pytest-tmp*/
+.test-tmp*/
+*.sql
+*.dump
+*.backup
+*.avi
+*.mp4
+*.mov
+*.mkv
+*.task
 

@@ -4,16 +4,16 @@
 
 ## Visão geral e responsabilidades
 
-Base: código da branch `feature/multimodal-dashboard`, versão declarada `0.4.0`. O sistema é um **monólito modular** educacional. A API reúne rotas, contratos, serviços e processadores no mesmo processo; Streamlit consome REST em processo separado. PostgreSQL persiste entidades e o sistema de arquivos guarda mídia. Azure Speech é a integração externa ativa. Não há fila, broker, worker distribuído, modelo treinado pelo projeto ou inferência clínica.
+Base: código da branch `feature/multimodal-dashboard`, versão declarada `0.4.0`. O sistema é um **monólito modular** educacional. A API reúne rotas, contratos, serviços e processadores no mesmo processo; Streamlit consome REST em processo separado. PostgreSQL persiste entidades e o sistema de arquivos guarda mídia. Azure Speech e Azure AI Language são as integrações externas implementadas. Não há fila, intermediário de mensagens, processo executor distribuído, modelo treinado pelo projeto ou inferência clínica.
 
 | Camada | Código | Responsabilidade |
 |---|---|---|
 | Inicialização | [app/main.py](../app/main.py) | Configuração, engine, CORS e ciclo de vida |
 | HTTP | [router.py](../app/api/router.py), [routes](../app/api/routes/) | Agregação de pacientes, clínico, mídia, demos e correlação |
-| Contratos | [schemas](../app/schemas/) | Pydantic, limites e serialização ORM |
+| Contratos | [esquemas](../app/schemas/) | Pydantic, limites e serialização ORM |
 | Aplicação | [services](../app/services/) | Orquestração, regras, transações, eventos e alertas |
 | Processadores | [modules](../app/modules/) | Áudio e vídeo sem dependência da interface |
-| Dados | [models.py](../app/db/models.py) | Oito entidades SQLAlchemy |
+| Dados | [models.py](../app/db/models.py) | Nove entidades SQLAlchemy |
 | Apresentação | [app.py](../dashboard/app.py), [multimodal_v2.py](../dashboard/multimodal_v2.py) | Formulários e consultas HTTP |
 
 Fluxo ponta a ponta: cadastrar paciente → ingerir medição ou mídia → validar contrato/dependências → avaliar regras → persistir eventos e eventuais alertas → correlacionar eventos existentes → consultar pelo dashboard. Upload e processamento são requisições separadas. O dashboard não acessa o banco diretamente.
@@ -22,7 +22,7 @@ Fluxo ponta a ponta: cadastrar paciente → ingerir medição ou mídia → vali
 
 `dashboard/app.py` contém oito abas: `Visao geral`, `Pacientes ficticios`, `Sinais vitais`, `Analise de video`, `Analise de audio`, `Prescricoes e movimentacoes`, `Midia e jobs` e `Monitoramento multimodal`. A última integra `render_multimodal_dashboard()`; v2 não é um serviço independente.
 
-`api_request()` usa `requests`, timeout de 20 segundos e apresenta falhas no Streamlit. Acrescenta `/api/v1` fixo a `API_BASE_URL`. Não há cache, WebSocket ou atualização periódica. Interações reexecutam o script; `Atualizar dados` chama `st.rerun()`. As abas compartilham a execução, incluindo consultas de abas fora de foco.
+`api_request()` usa `requests`, tempo limite de 90 segundos e apresenta falhas no Streamlit. Acrescenta `/api/v1` fixo a `API_BASE_URL`. Não há cache, WebSocket ou atualização periódica. Interações reexecutam o script; `Atualizar dados` chama `st.rerun()`. As abas compartilham a execução, incluindo consultas de abas fora de foco.
 
 ### Dashboard v2
 
@@ -35,7 +35,7 @@ Fluxo ponta a ponta: cadastrar paciente → ingerir medição ou mídia → vali
 - Explorador: janela inteira de 1–60 minutos, padrão 5; executa `run-v2` e informa quantas correlações foram criadas. O período visual não restringe a consulta do algoritmo.
 - Detalhamento: resolve `source_event_ids` nos eventos consultados; se estiverem fora do recorte, usa os resumos de `source_events` no payload.
 - Linha do tempo: reúne eventos originais e correlações, com filtro de origem e inspeção JSON.
-- Alertas: tabela filtrável por status. A v2 não oferece mudança de status; a API oferece.
+- Alertas: fila filtrável, reconhecimento, resolução e histórico. Relatórios de mídia apresentam resultados persistidos de áudio e vídeo.
 
 A interface avisa quando recebe exatamente 500 registros em algum recurso. KPIs representam o recorte consultado, não totais globais garantidos. Datas são normalizadas para UTC; a formatação usa o fuso local do processo Streamlit, que pode diferir do navegador.
 
@@ -45,7 +45,7 @@ A interface avisa quando recebe exatamente 500 registros em algum recurso. KPIs 
 
 [get_db()](../app/api/deps.py) abre sessão por requisição e fecha no `finally`. Rotas/serviços controlam commits; não há commit automático na dependência. Rotas são majoritariamente síncronas. O upload é assíncrono, mas grava diretamente no disco.
 
-Schemas de resposta usam `from_attributes=True`. `Literal[True]` restringe entradas sintéticas de pacientes, medições, prescrições e movimentações. A marca não comprova a origem dos dados. IDs das rotas são strings, sem validação UUID. Não há autenticação/autorização.
+Esquemas de resposta usam `from_attributes=True`. `Literal[True]` restringe entradas sintéticas de pacientes, medições, prescrições e movimentações. A marca não comprova a origem dos dados. IDs das rotas são strings, sem validação UUID. Não há autenticação/autorização.
 
 Pydantic retorna 422; rotas usam 404 para dependências ausentes, 409 para conflitos conhecidos, 413 para tamanho e 415 para extensão. Cadastro de paciente trata `IntegrityError` com rollback e 409. Correlação v2 usa savepoint. Não existe tratador global de erros de domínio: exceções não previstas podem resultar em 500. Contratos completos em [API](API_REFERENCE.md).
 
@@ -53,7 +53,7 @@ Pydantic retorna 422; rotas usam 404 para dependências ausentes, 409 para confl
 
 ### 1. Sinais vitais sintéticos
 
-[clinical_flow.py](../app/services/clinical_flow.py) persiste a medição e chama [vital_signs.py](../app/services/vital_signs.py). Todos os valores podem ser nulos, conforme o schema. Regras pontuais, por prioridade:
+[clinical_flow.py](../app/services/clinical_flow.py) persiste a medição e chama [vital_signs.py](../app/services/vital_signs.py). Todos os valores podem ser nulos, conforme o esquema. Regras pontuais, por prioridade:
 
 | Campo | Condição demonstrativa | Severidade |
 |---|---|---|
@@ -72,19 +72,33 @@ Inserções podem produzir eventos para janelas sobrepostas; ingestão não é i
 
 [processor.py](../app/modules/video/processor.py) usa `VideoCapture`, coleta resolução, fps, duração e quantidade de quadros. Amostra a cada três quadros, até 900 **quadros analisados**, por padrão. Não é limite de 900 quadros lidos da origem. Converte para cinza, reduz para 160×90, aplica GaussianBlur 5×5 e calcula diferença absoluta entre amostras. Binariza diferenças no limiar 25 e calcula porcentagem de pixels alterados.
 
-Média ≤0,35% produz `sustained_low_motion`; pico ≥20% produz `abrupt_visual_change`, ambos `high`. Limiares são configuráveis e as duas anomalias podem coexistir. São necessários ao menos dois quadros analisáveis. [video_flow.py](../app/services/video_flow.py) gera evento e alerta por anomalia, guardando job, mídia, valor, limiar e unidade. Não identifica pessoas, postura, dor ou queda.
+Média ≤0,35% produz `sustained_low_motion`; pico ≥20% produz `abrupt_visual_change`, ambos `high`. Limiares são configuráveis e as duas anomalias podem coexistir. São necessários ao menos dois quadros analisáveis. [video_flow.py](../app/services/video_flow.py) gera evento e alerta por anomalia, guardando job, mídia, valor, limiar e unidade. A camada OpenCV não identifica pessoas ou postura; pose opcional está descrita na evolução abaixo. Nenhuma camada infere dor ou queda clínica.
 
 O gerador cria por padrão AVI MJPG de 2 segundos, 10 fps, 320×240, com retângulo e marca `SYNTHETIC`. Demonstra processamento visual real sem imagem pessoal.
 
+### Pose opcional com MediaPipe
+
+O vídeo mantém OpenCV e acrescenta adaptador opcional MediaPipe Pose Landmarker (CPU, Tasks API, uma pessoa por amostra). Escolhido por oferecer 33 landmarks e dispensar PyTorch; o código MediaPipe é Apache 2.0. Verifique também a licença do pacote de modelo de modelo escolhido antes de redistribuir. Instale `.[dev,pose]`, ou construa `docker compose build --build-arg INSTALL_POSE=true api dashboard`. Forneça um pacote de modelo `.task` compatível em `storage/models/` por preparação explícita: não há download automático de pesos. Configure `VIDEO_POSE_ENABLED=true`, `VIDEO_POSE_MODEL_PATH=/app/storage/models/pose_landmarker_lite.task` e `VIDEO_POSE_DISPLACEMENT_THRESHOLD=0.15`. São duas passagens limitadas por `VIDEO_MAX_FRAMES`, que conta amostras analisadas. Os tempos observados no ambiente validado estão em [Testes](TESTING.md); não há garantia de execução em tempo real. O [guia](DEMO_GUIDE.md#12-preparar-e-demonstrar-pose-real) detalha o download oficial e a conferência do modelo.
+
+A métrica é o pico da média das distâncias 2D de ombros e quadris entre amostras consecutivas com visibilidade >=0,6. O limiar é demonstrativo, em coordenadas normalizadas de imagem, dependente da amostragem; não é velocidade física. Sem pose confiável não há anomalia de pose. Resultados distinguem `disabled`, `model_unavailable`, `dependency_unavailable`, `error`, `no_pose`, `completed`. OpenCV continua em todos esses casos. `pose_displacement_review` gera evento e alerta de revisão, com valor, unidade e limiar; este tipo adicional não integra a lista de elegibilidade da correlação v2. Os tipos OpenCV antigos continuam elegíveis, sem mudança no algoritmo.
+
+A versão de pose validada é MediaPipe **0.10.31**, com pacote de modelo oficial Lite e execução CPU em modo `IMAGE` (amostras independentes, sem rastreamento). Essa versão evita a dependência gráfica OpenCV introduzida em versões posteriores examinadas, mas seu wheel oficial contém tag interna `cp39-cp39-linux_x86_64`, inconsistente com o nome `py3`; `pip check` falha no Python 3.12 validado. A falha está documentada, sem modificar metadados do fornecedor. `compared_pairs` conta pares consecutivos aceitos; sem pares comparáveis, o deslocamento é `null`. Os 33 landmarks persistidos descrevem a última pose aceita, não uma trajetória ou inferência biomecânica. Evidências reais, tempos locais e limitações: [Testes](TESTING.md) e [Prontidão final](READINESS.md).
+
 ### 3. Áudio, Azure Speech e análise local
 
-[audio_flow.py](../app/services/audio_flow.py) executa transcrição → acústica → análise textual → eventos. [azure_speech.py](../app/modules/audio/azure_speech.py) valida extensão, arquivo e credenciais; usa `SpeechRecognizer`, idioma `pt-BR`, `recognize_once_async().get()`. `RecognizedSpeech` retorna texto; `NoMatch` retorna vazio e pode concluir sem evento. Cancelamento ou resultado inesperado gera `AudioTranscriptionError`. Não há transcrição contínua ou diarização.
+[audio_flow.py](../app/services/audio_flow.py) executa validação/acústica → transcrição → Azure Language opcional → regras textuais locais → eventos. [azure_speech.py](../app/modules/audio/azure_speech.py) valida extensão, arquivo e credenciais; usa `SpeechRecognizer`, idioma `pt-BR`, `recognize_once_async().get()`. `RecognizedSpeech` retorna texto; `NoMatch` retorna vazio e pode concluir sem evento. Cancelamento ou resultado inesperado gera `AudioTranscriptionError`. Não há transcrição contínua ou diarização.
 
-[acoustic.py](../app/modules/audio/acoustic.py) exige WAV PCM 16 bits sem compressão e amostras válidas. Normaliza por 32768 e calcula duração, taxa, canais, RMS global, pico, silêncio e clipping. Silêncio usa RMS de janelas de 100 ms abaixo de 0,01, com média dos canais; clipping usa amplitude absoluta ≥0,999. Métricas não geram eventos por si mesmas. A validação acústica acontece depois da chamada Azure no serviço atual.
+[acoustic.py](../app/modules/audio/acoustic.py) exige WAV PCM 16 bits sem compressão e amostras válidas. Normaliza por 32768 e calcula duração, taxa, canais, RMS global, pico, silêncio e clipping. Silêncio usa RMS de janelas de 100 ms abaixo de 0,01, com média dos canais; clipping usa amplitude absoluta ≥0,999. Métricas não geram eventos por si mesmas. A validação acústica acontece antes de qualquer chamada Azure.
 
 [text_analysis.py](../app/modules/audio/text_analysis.py) separa sentenças, normaliza caixa/acentos e procura expressões fixas de `help_request`, `pain_report` e `breathing_report`. Não usa LLM. Classifica negação nos cinco tokens anteriores e marcadores de terceiros/histórico na sentença. `nao consigo respirar` é afirmativa por regra especial anterior às demais verificações. São heurísticas limitadas em ambiguidades e contexto.
 
 [audio_event_flow.py](../app/services/audio_event_flow.py) cria um evento `low` por categoria afirmativa no job: `audio_help_request_review`, `audio_pain_report_review`, `audio_breathing_report_review`. Guarda achados, job, mídia e revisão humana. Negação, histórico e terceiros não geram esses eventos. Terceiros podem marcar `requires_review` na análise textual, sem evento persistido. Áudio não cria alertas. Transcrição e métricas ficam em `ProcessingJob.result.analysis`.
+
+### Azure AI Language e métricas acústicas
+
+O áudio valida PCM antes da transcrição Azure Speech. Em seguida `azure-ai-textanalytics` executa `analyze_sentiment` e `recognize_entities` com idioma `pt`. O resultado fica em `job.result.analysis.azure_language`: provedor, status, sentimento (`positive`, `neutral`, `negative`, `mixed`), três escores de confiança, entidades gerais com posições no texto e escores. As regras locais e seus contratos de eventos continuam independentes. Sentimento e NER não geram alerta nem reconhecimento clínico validado. Status possíveis: `completed`, `partial`, `error`, `empty_text`, `not_configured`. Falhas são redigidas com códigos internos; nunca se fabricam respostas Azure.
+
+A acústica acrescenta RMS por janelas de 100 ms, desvio de intensidade, número e duração máxima de intervalos silenciosos. Os limiares e durações ficam persistidos. Intervalos incluem silêncio inicial/final e não são pausas respiratórias comprovadas; não há escore médico nem inferência de fadiga. A média entre canais pode cancelar sinais em oposição de fase.
 
 ### 4. Prescrições fictícias
 
@@ -106,7 +120,7 @@ Medições usam sua data; eventos de mídia usam o horário padrão de criação
 
 `Alert` referencia evento e paciente, com status inicial `open`; `event_id` único permite no máximo um alerta por evento. Sinais vitais, tendências, vídeo e anomalias operacionais geram alertas. Áudio e correlações v1/v2 não geram alertas. Não há envio de e-mail/SMS.
 
-`PATCH /alerts/{alert_id}` aceita `acknowledged` ou `resolved`, sem máquina de transições. Reconhecer define `acknowledged_at`; resolver não cria `resolved_at` nem remove reconhecimento anterior. Não existe identificação de operador ou histórico completo.
+`PATCH /alerts/{alert_id}` aceita `acknowledged` ou `resolved`, com transições demonstrativas. Reconhecer define `acknowledged_at`; resolver registra data no histórico sem apagar reconhecimento anterior. Resolvido é terminal; repetir status é idempotente. As revisões registram responsável fictício, nota, horário e status anterior em `alert_review_actions`.
 
 ## Correlação multimodal v2
 
@@ -178,28 +192,31 @@ PostgreSQL 16 via psycopg é o banco do Compose; sem configuração `Settings` u
 | `PatientMovement` / `patient_movements` | FK paciente, origem/destino e data |
 | `ClinicalEvent` / `clinical_events` | FK paciente e medição opcional, payload e chave única |
 | `Alert` / `alerts` | FK paciente e evento único, status e reconhecimento |
+| `AlertReviewAction` / `alert_review_actions` | FK alerta, status anterior/novo, responsável fictício, nota e horário |
 
 Hash de mídia não é único. Reenvio cria novo recurso. `storage_path` não aparece em `MediaFileRead`, mas descrições de pipeline em jobs podem mostrar caminhos. Não há download de mídia. Disco e SQL não formam transação atômica: falhas podem deixar arquivos sem registro.
 
 ### Ciclo de vida dos jobs
 
-Upload → `queued`, 0 → processamento explícito → `processing`, 10 e commit → `completed`, 100 com resultados. Erros previstos revertem resultados em andamento e persistem `failed`, 100 e erro. Jobs `failed` podem ser tentados novamente; `processing`/`completed` retornam 409. Não há fila automática, retomada de jobs presos ou lock de banco que garanta exclusão de processamento concorrente. Exceções inesperadas podem deixar o job em `processing`.
+Upload → `queued`, 0 → processamento explícito → `processing`, 10 e commit → `completed`, 100 com resultados. Erros previstos revertem resultados em andamento e persistem `failed`, 100 e erro. Jobs `failed` podem ser tentados novamente; `processing`/`completed` retornam 409. Não há fila automática, retomada de jobs presos ou bloqueio de banco que garanta exclusão de processamento concorrente. Exceções inesperadas podem deixar o job em `processing`.
 
 ### Migração explícita
 
-[migrate_correlation_keys.py](../app/db/migrate_correlation_keys.py) usa transação. No PostgreSQL adquire `ACCESS EXCLUSIVE`, adiciona coluna se ausente, lê correlações v2 por `created_at, id`, limpa suas chaves e atribui fingerprint à primeira ocorrência de cada conjunto. Preserva duplicatas históricas e registros sem origens com `NULL`; cria `ix_clinical_events_correlation_key` único. O lock bloqueia acesso à tabela durante a migração.
+[migrate_correlation_keys.py](../app/db/migrate_correlation_keys.py) usa transação. No PostgreSQL adquire `ACCESS EXCLUSIVE`, adiciona coluna se ausente, lê correlações v2 por `created_at, id`, limpa suas chaves e atribui fingerprint à primeira ocorrência de cada conjunto. Preserva duplicatas históricas e registros sem origens com `NULL`; cria `ix_clinical_events_correlation_key` único. O bloqueio bloqueia acesso à tabela durante a migração.
 
-No SQLite usa `PRAGMA table_info` e `ALTER TABLE`; outros dialetos são rejeitados. Pressupõe tabela existente, não substituindo migrações gerais versionadas. [schema.py](../app/db/schema.py) verifica coluna e índice único nessa coluna; não audita todos os tipos/dados/tabelas. Procedimento operacional no [README](../README.md#migração-segura-de-postgresql-existente), sem remoção de volumes.
+No SQLite usa `PRAGMA table_info` e `ALTER TABLE`; outros dialetos são rejeitados. Pressupõe tabela existente, não substituindo migrações gerais versionadas. [esquema.py](../app/db/schema.py) verifica coluna e índice único nessa coluna; não audita todos os tipos/dados/tabelas. Procedimento operacional no [README](../README.md#migração-segura-de-postgresql-existente), sem remoção de volumes.
+
+[migrate_alert_reviews.py](../app/db/migrate_alert_reviews.py) cria a tabela aditiva de histórico, com `checkfirst`, sem alterar alertas anteriores nem fabricar revisões. `Base.metadata.create_all()` na inicialização também cria essa tabela quando ausente. O verificador de esquema continua restrito à coluna/índice de correlação; não é uma ferramenta geral de migração. Nenhuma migração foi necessária na revisão final de prontidão.
 
 ## Infraestrutura
 
 | Serviço | Configuração | Dependência/saúde |
 |---|---|---|
-| `db` | `postgres:16-alpine`, volume `postgres_data`, sem porta publicada | `pg_isready`, intervalo 5 s, timeout 5 s, 10 tentativas |
-| `api` | Build local, porta 8000, `./storage:/app/storage` | Aguarda banco saudável; `/health`, intervalo 10 s, timeout 5 s, 10 tentativas |
-| `dashboard` | Mesmo build, Streamlit, porta 8501 | Aguarda API saudável; sem health check próprio |
+| `db` | `postgres:16-alpine`, volume `postgres_data`, sem porta publicada | `pg_isready`, intervalo 5 s, tempo limite 5 s, 10 tentativas |
+| `api` | Construção local, porta 8000, `./storage:/app/storage` | Aguarda banco saudável; `/health`, intervalo 10 s, tempo limite 5 s, 10 tentativas |
+| `dashboard` | Mesmo construção, Streamlit, porta 8501 | Aguarda API saudável; sem verificação de saúde próprio |
 
-[docker-compose.yml](../docker-compose.yml): todos usam `restart: unless-stopped`. [Dockerfile](../Dockerfile): `python:3.12-slim`, instala `.[dev]`, copia aplicação, dashboard, testes e scripts. Código não é montado no Compose: mudanças exigem rebuild. Mídia é bind mount e PostgreSQL usa volume distinto. Parar containers preserva ambos. `/health` não consulta o banco.
+[docker-compose.yml](../docker-compose.yml): todos usam `restart: unless-stopped`. [Dockerfile](../Dockerfile): `python:3.12-slim`, instala `.[dev]` ou `.[dev,pose]` quando `INSTALL_POSE=true`, copia aplicação, dashboard, testes e scripts. Código não é montado no Compose: mudanças exigem rebuild. Mídia é bind mount e PostgreSQL usa volume distinto. Parar contêineres preserva ambos. `/health` não consulta o banco. `.dockerignore` exclui armazenamento local, evidências e bytecode do contexto; modelo e mídia são preparação externa à imagem. Não há bloqueio completo de dependências nem garantia de construção idêntico no futuro.
 
 ### Variáveis de ambiente
 
@@ -213,24 +230,31 @@ No SQLite usa `PRAGMA table_info` e `ALTER TABLE`; outros dialetos são rejeitad
 | `VIDEO_SAMPLE_EVERY_N_FRAMES`, `VIDEO_MAX_FRAMES` | 3 e 900, validados positivos |
 | `VIDEO_LOW_MOTION_THRESHOLD`, `VIDEO_ABRUPT_MOTION_THRESHOLD` | 0,35 e 20,0, em porcentagem de pixels |
 | `CORS_ORIGINS` | `http://localhost:8501`; validador admite lista/string por vírgula |
-| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Obrigatórias para transcrição fora de mocks |
-| `AZURE_LANGUAGE_ENDPOINT`, `AZURE_LANGUAGE_KEY` | Configurações sem integração ativa |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Obrigatórias para transcrição fora de simulações |
+| `AZURE_LANGUAGE_ENDPOINT`, `AZURE_LANGUAGE_KEY` | Sentimento e entidades gerais opcionais, idioma pt |
+| `INSTALL_POSE` | `false`; controla a instalação do extra no construção do Compose |
+| `VIDEO_POSE_ENABLED`, `VIDEO_POSE_MODEL_PATH` | `false` e caminho ausente; habilitação explícita e modelo local |
+| `VIDEO_POSE_DISPLACEMENT_THRESHOLD` | 0,15; deslocamento normalizado, validado no intervalo maior que 0 e até 2 |
 | `API_BASE_URL` | Dashboard: `http://api:8000` no Compose, localhost no código |
 
 [Settings](../app/core/config.py) lê `.env`, ignora extras e é armazenado em cache por `get_settings()`. Alterações exigem reiniciar processos. Compose injeta variáveis explicitamente. Não publique saídas de configuração contendo segredos.
 
-Testes usam SQLite temporário/em memória. Não demonstram integralmente locks, dialeto PostgreSQL, fusos, concorrência ou persistência de volumes. Consulte [Testes](TESTING.md).
+Testes usam SQLite temporário/em memória. Não demonstram integralmente bloqueios, dialeto PostgreSQL, fusos, concorrência ou persistência de volumes. Consulte [Testes](TESTING.md).
 
 ## Decisões arquiteturais
 
 | Escolha atual | Vantagem | Limitação/evolução possível |
 |---|---|---|
-| Monólito modular | Execução simples e responsabilidades legíveis | Compartilha escala/falhas; separar workers se houver necessidade medida |
+| Monólito modular | Execução simples e responsabilidades legíveis | Compartilha escala/falhas; separar processos executores se houver necessidade medida |
 | REST | OpenAPI, script e dashboard com mesmo contrato | Sem fluxo contínuo; evoluir paginação e filtros por período |
 | Banco relacional | FKs, transações e unicidade | Arquivos fora da transação; testar PostgreSQL e versionar migrações |
-| Streamlit | Formulários/gráficos diretos | Reexecução ampla e timeout; testar interface |
-| Processamento síncrono | Resultado imediato | Requisição ocupada; fila/workers seriam implementação futura |
+| Streamlit | Formulários/gráficos diretos | Reexecução ampla e tempo limite; testar interface |
+| Processamento síncrono | Resultado imediato | Requisição ocupada; fila/processos executores seriam implementação futura |
 | Regras determinísticas | Critérios inspecionáveis e reproduzíveis | Semântica limitada; versionar e ampliar avaliação |
 | Dados sintéticos | Demonstração sem dados pessoais | Não prova validade clínica ou desempenho assistencial |
 
 Prioridades: autenticação, autorização, retenção, segredos, logs estruturados sem conteúdo sensível, testes PostgreSQL/concorrência/UI e dependências diretas travadas. Novos modelos, infraestrutura de produção e qualquer uso clínico exigem implementação e validação futuras.
+
+## Referências técnicas
+
+Fontes técnicas: [SDK oficial Azure](https://learn.microsoft.com/en-us/python/api/overview/azure/ai-textanalytics-readme), [MediaPipe Pose Python](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/python), [código/licença MediaPipe](https://github.com/google-ai-edge/mediapipe).

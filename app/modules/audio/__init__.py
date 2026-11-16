@@ -1,2 +1,2 @@
-"""Audio processing module reserved for the Azure and acoustic pipeline."""
+"""Processamento de áudio com integração Azure e análise acústica."""
 

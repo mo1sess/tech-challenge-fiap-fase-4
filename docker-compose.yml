@@ -15,7 +15,10 @@ services:
     restart: unless-stopped
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_POSE: ${INSTALL_POSE:-false}
     environment:
       APP_NAME: ${APP_NAME:-MedGuard AI}
       APP_ENV: ${APP_ENV:-development}
@@ -27,6 +30,9 @@ services:
       VIDEO_LOW_MOTION_THRESHOLD: ${VIDEO_LOW_MOTION_THRESHOLD:-0.35}
       VIDEO_ABRUPT_MOTION_THRESHOLD: ${VIDEO_ABRUPT_MOTION_THRESHOLD:-20.0}
       VIDEO_MAX_FRAMES: ${VIDEO_MAX_FRAMES:-900}
+      VIDEO_POSE_ENABLED: ${VIDEO_POSE_ENABLED:-false}
+      VIDEO_POSE_MODEL_PATH: ${VIDEO_POSE_MODEL_PATH:-}
+      VIDEO_POSE_DISPLACEMENT_THRESHOLD: ${VIDEO_POSE_DISPLACEMENT_THRESHOLD:-0.15}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8501}
       AZURE_SPEECH_KEY: ${AZURE_SPEECH_KEY:-}
       AZURE_SPEECH_REGION: ${AZURE_SPEECH_REGION:-}
@@ -47,7 +53,10 @@ services:
     restart: unless-stopped
 
   dashboard:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_POSE: ${INSTALL_POSE:-false}
     command: ["streamlit", "run", "dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
     environment:
       API_BASE_URL: ${API_BASE_URL:-http://api:8000}

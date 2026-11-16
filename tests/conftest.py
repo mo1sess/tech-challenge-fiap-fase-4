@@ -20,6 +20,9 @@ async def client(tmp_path) -> AsyncGenerator[AsyncClient, None]:
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         storage_dir=tmp_path / "uploads",
         cors_origins=["http://testserver"],
+        azure_language_endpoint=None,
+        azure_language_key=None,
+        video_pose_enabled=False,
     )
     app = create_app(settings)
     Base.metadata.create_all(bind=app.state.engine)

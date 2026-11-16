@@ -64,6 +64,18 @@ class MeasurementIngestResponse(BaseModel):
 
 class AlertStatusUpdate(BaseModel):
     status: Literal["acknowledged", "resolved"]
+    reviewer: str = Field(default="Equipe fictícia de revisão", min_length=2, max_length=120, pattern=r"\S")
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class AlertReviewRead(ORMModel):
+    id: str
+    alert_id: str
+    previous_status: str
+    status: str
+    reviewer: str
+    note: str | None
+    created_at: datetime
 
 
 class DemoFlowResponse(BaseModel):

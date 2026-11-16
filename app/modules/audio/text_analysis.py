@@ -78,7 +78,7 @@ def classify_context(
     expression: str,
     match_start: int,
 ) -> str:
-    # Context is evaluated within a sentence, not globally.
+    # Avalia o contexto dentro de cada sentença.
     prefix = sentence[:match_start]
     preceding_tokens = prefix.split()
     recent_tokens = preceding_tokens[-5:]
@@ -88,7 +88,7 @@ def classify_context(
     if expression == "nao consigo respirar":
         return "affirmed"
 
-    # Conservative negation detection close to the expression.
+    # Detecta negação de forma conservadora nas proximidades da expressão.
     if "nao" in recent_tokens or "sem" in recent_tokens:
         return "negated"
 
@@ -158,8 +158,8 @@ def analyze_text(text: str) -> TextAnalysis:
                     )
                     findings.append(finding.to_dict())
 
-                    # Only affirmative matches enter the legacy
-                    # matched_signals and matched_expressions fields.
+                    # Apenas ocorrências afirmativas preenchem os campos legados
+                    # matched_signals e matched_expressions.
                     if context == "affirmed":
                         if signal not in matched_signals:
                             matched_signals.append(signal)

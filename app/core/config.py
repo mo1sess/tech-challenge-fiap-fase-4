@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     video_low_motion_threshold: float = 0.35
     video_abrupt_motion_threshold: float = 20.0
     video_max_frames: int = 900
+    video_pose_enabled: bool = False
+    video_pose_model_path: str | None = None
+    video_pose_displacement_threshold: float = 0.15
     cors_origins: list[str] | str = ["http://localhost:8501"]
     azure_speech_key: str | None = None
     azure_speech_region: str | None = None
@@ -23,6 +26,13 @@ class Settings(BaseSettings):
     azure_language_key: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("video_pose_displacement_threshold")
+    @classmethod
+    def positive_pose_threshold(cls, value: float) -> float:
+        if not 0 < value <= 2:
+            raise ValueError("O limiar de pose deve estar entre 0 e 2, excluindo zero")
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

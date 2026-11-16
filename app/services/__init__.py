@@ -1,2 +1,2 @@
-"""Domain services."""
+"""Serviços de domínio."""
 

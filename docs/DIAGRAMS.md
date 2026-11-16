@@ -13,9 +13,11 @@ flowchart LR
     CLI[Script demo_multimodal] -->|REST| API
     API --> S[Serviços e regras determinísticas]
     S --> DB[(PostgreSQL)]
-    API --> FS[Storage local de mídia]
+    API --> FS[Armazenamento local de mídia]
     S --> FS
     S --> V[OpenCV e NumPy]
+    S --> L[Azure AI Language opcional]
+    S --> P[MediaPipe Tasks e modelo local opcionais]
     S --> A[Adaptador Azure Speech]
     A --> AZ[Azure Speech-to-Text]
 ```
@@ -25,12 +27,12 @@ flowchart LR
 ```mermaid
 flowchart TD
     MAIN[app.main: create_app] --> ROUTER[app.api.router]
-    ROUTER --> P[patients]
-    ROUTER --> C[clinical]
-    ROUTER --> M[media]
-    ROUTER --> D[demo]
-    ROUTER --> R[correlation]
-    SCH[Schemas Pydantic] --> ROUTER
+    ROUTER --> P[Pacientes: patients]
+    ROUTER --> C[Fluxos clínicos: clinical]
+    ROUTER --> M[Mídia: media]
+    ROUTER --> D[Demonstração: demo]
+    ROUTER --> R[Correlação: correlation]
+    SCH[Esquemas Pydantic] --> ROUTER
     DEP[get_db: sessão por requisição] --> ROUTER
     C --> CF[clinical_flow e temporal_analysis]
     C --> OP[prescription_flow e movement_flow]
@@ -39,8 +41,8 @@ flowchart TD
     D --> CF
     D --> VF
     R --> COR[correlation_flow e correlation_v2]
-    AF --> AUDIO[Azure Speech, acústica e regras textuais]
-    VF --> VIDEO[OpenCV: diferença entre quadros]
+    AF --> AUDIO[Azure Speech, Azure AI Language, acústica e regras textuais]
+    VF --> VIDEO[OpenCV e MediaPipe Pose opcional]
     CF --> ORM[Modelos SQLAlchemy]
     OP --> ORM
     AF --> ORM
@@ -53,19 +55,20 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    UP[Upload WAV sintético] --> VAL[Paciente, extensão e tamanho]
-    VAL --> STORE[Arquivo, SHA-256, mídia e job queued]
+    UP[Envio de WAV sintético] --> VAL[Paciente, extensão e tamanho]
+    VAL --> STORE[Arquivo, SHA-256, mídia e tarefa queued]
     STORE --> POST[POST jobs por ID: process]
-    POST --> STATE[processing e progresso 10]
-    STATE --> AZ[Azure Speech: reconhecimento único pt-BR]
-    AZ --> AC[PCM 16 bits: métricas acústicas locais]
-    AC --> TXT[Regras textuais e classificação de contexto]
+    POST --> STATE[Em processamento: processing e progresso 10]
+    STATE --> AC[Validação PCM e energia por intervalos]
+    AC --> AZ[Azure Speech: reconhecimento único pt-BR]
+    AZ --> LANG[Azure Language opcional: sentimento e entidades]
+    LANG --> TXT[Regras textuais e classificação de contexto]
     TXT --> YES{Categoria afirmativa?}
-    YES -->|Sim| EV[Evento low por categoria e job]
+    YES -->|Sim| EV[Evento de severidade low por categoria e tarefa]
     YES -->|Não| EMPTY[Sem evento de revisão]
-    EV --> DONE[completed: resultado, progresso 100 e commit]
+    EV --> DONE[Concluído: completed, resultado, progresso 100 e commit]
     EMPTY --> DONE
-    AZ -->|Erro previsto| FAIL[Rollback e job failed]
+    AZ -->|Erro previsto| FAIL[Reversão e tarefa failed]
     AC -->|Erro previsto| FAIL
     TXT -->|Erro previsto| FAIL
 ```
@@ -76,7 +79,7 @@ O áudio não cria alertas. `NoMatch` pode concluir sem eventos. Detalhes em [Ar
 
 ```mermaid
 flowchart TD
-    IN[Upload ou gerador geométrico] --> JOB[Mídia e job queued]
+    IN[Envio de mídia ou gerador geométrico] --> JOB[Mídia e tarefa queued]
     JOB --> RUN[Processamento explícito: processing]
     RUN --> CV[OpenCV VideoCapture e metadados]
     CV --> SAMPLE[Amostragem e limite de quadros analisados]
@@ -84,19 +87,21 @@ flowchart TD
     GRAY --> DIFF[Diferença absoluta e limiar 25]
     DIFF --> MET[Média e pico de pixels alterados]
     MET --> RULE[Baixa variação ou mudança abrupta]
-    RULE --> EV[Evento e alerta por anomalia]
-    EV --> OK[completed com análise e IDs]
-    CV -->|Erro previsto| FAIL[Rollback e failed]
+    RULE --> POSE[Análise opcional de pose em CPU]
+    POSE --> COMB[Reunir anomalias OpenCV e de pose]
+    COMB --> EV[Evento e alerta por anomalia]
+    EV --> OK[Concluído: completed com análise e IDs]
+    CV -->|Erro previsto| FAIL[Reversão e estado failed]
     SAMPLE -->|Menos de dois quadros| FAIL
 ```
 
-Ausência de anomalia permite conclusão sem eventos/alertas. Não há reconhecimento de pessoas.
+Ausência de anomalia permite conclusão sem eventos ou alertas. OpenCV avalia variação global; MediaPipe pode estimar pontos corporais, sem reconhecer identidade ou estabelecer diagnóstico. A indisponibilidade de pose é registrada explicitamente e não impede OpenCV.
 
 ## 5. Ingestão de sinais vitais
 
 ```mermaid
 flowchart TD
-    REQ[POST measurements por paciente] --> VAL[Pydantic e existência do paciente]
+    REQ[Registro por paciente: POST measurements] --> VAL[Pydantic e existência do paciente]
     VAL --> SAVE[Medição sintética e flush]
     SAVE --> POINT[Regras pontuais demonstrativas]
     POINT --> PEV[Se houver detecção: evento vital_signs e alerta]
@@ -115,17 +120,17 @@ flowchart TD
     RUN[POST run-v2] --> CHECK[Paciente sintético e janela de 1 a 60 minutos]
     CHECK --> LOAD[Até 30 eventos elegíveis por fonte]
     LOAD --> DEDUP[Um representante por job de vídeo]
-    DEDUP --> TRIPLE[Enumerar áudio x vídeo x sinais vitais]
+    DEDUP --> TRIPLE[Enumerar áudio, vídeo e sinais vitais]
     TRIPLE --> WIN[Validar amplitude temporal total]
     WIN --> PAIR[Pares áudio-vídeo e vídeo-vitais]
     PAIR --> PRIOR[Suprimir pares contidos em trios elegíveis]
     PRIOR --> IDS[IDs de origem ordenados]
     IDS --> OLD{Conjunto já persistido?}
     OLD -->|Sim| SKIP[Ignorar combinação]
-    OLD -->|Não| HASH[JSON compacto e fingerprint SHA-256]
-    HASH --> INSERT[Savepoint e inserção com correlation_key única]
+    OLD -->|Não| HASH[JSON compacto e identificação SHA-256]
+    HASH --> INSERT[Ponto de salvamento e inserção com correlation_key única]
     INSERT -->|Conflito de integridade| SKIP
-    INSERT --> NEW[Evento de coocorrência low sem alerta]
+    INSERT --> NEW[Evento de coocorrência com severidade low, sem alerta]
     SKIP --> FIN[Commit e retorno somente de eventos novos]
     NEW --> FIN
 ```
@@ -146,6 +151,7 @@ erDiagram
     media_files o|--o{ processing_jobs : referencia
     clinical_measurements o|--o{ clinical_events : referencia
     clinical_events ||--o| alerts : origina
+    alerts ||--o{ alert_review_actions : revisoes
     patients {
         string id PK
         string code UK
@@ -201,6 +207,14 @@ erDiagram
         string event_id FK, UK
         string status
     }
+    alert_review_actions {
+        string id PK
+        string alert_id FK
+        string previous_status
+        string status
+        string reviewer
+        datetime created_at
+    }
 ```
 
 Modelo simplificado: campos opcionais e demais métricas estão em [models.py](../app/db/models.py). IDs de origem em payloads não são FKs; o arquivo binário não fica no banco.
@@ -212,8 +226,9 @@ sequenceDiagram
     actor Operador
     participant Script as demo_multimodal.py
     participant API as FastAPI e serviços
-    participant Disco as Storage local
+    participant Disco as Armazenamento local
     participant Azure as Azure Speech
+    participant Language as Azure AI Language
     participant DB as PostgreSQL
     participant UI as Dashboard v2
     Operador->>Script: Executar com WAV sintético local
@@ -221,17 +236,22 @@ sequenceDiagram
     API->>DB: Persistir paciente único
     API-->>Script: patient_id e code
     Script->>Script: Gerar vídeo geométrico temporário
-    Script->>API: Upload de vídeo
+    Script->>API: Enviar vídeo
     API->>Disco: Salvar vídeo
-    API->>DB: Mídia e job queued
+    API->>DB: Mídia e tarefa queued
     Script->>API: Processar job de vídeo
     API->>Disco: Ler e analisar com OpenCV
     API->>DB: Resultado, evento e alerta
-    Script->>API: Upload e processamento do WAV
+    Script->>API: Enviar e processar WAV
     API->>Disco: Salvar e ler WAV
+    API->>API: Validar PCM e calcular métricas acústicas
     API->>Azure: Reconhecimento pt-BR
     Azure-->>API: Texto ou erro
-    API->>API: Métricas e regras textuais
+    opt Azure AI Language configurado
+        API->>Language: Analisar sentimento e entidades em pt
+        Language-->>API: Resultados ou falha explícita
+    end
+    API->>API: Aplicar regras textuais locais
     API->>DB: Resultado e eventos de revisão
     Script->>API: POST measurements com valores anômalos
     API->>DB: Medição, evento e alerta
@@ -250,3 +270,38 @@ sequenceDiagram
 ```
 
 O fluxo de sucesso depende do WAV, reconhecimento, limiares e proximidade temporal. Contagens históricas e condições de reprodução estão no [guia](DEMO_GUIDE.md).
+
+
+## 9. Revisão simulada
+
+```mermaid
+flowchart LR
+    E[Evento normalizado] --> A[Alerta aberto]
+    A --> F[Fila por paciente e severidade]
+    F --> R[Responsável fictício reconhece]
+    R --> S[Resolução]
+    A --> S
+    R --> H[(Histórico persistido)]
+    S --> H
+```
+
+## 10. Pose opcional
+
+```mermaid
+flowchart TD
+    V[Vídeo sintético] --> O[OpenCV sempre ativo]
+    V --> ENABLE{Análise de pose habilitada?}
+    ENABLE -->|Não| OFF[Estado disabled, sem inferência]
+    ENABLE -->|Sim| P{SDK e modelo local disponíveis?}
+    P -->|Não| U[Status de indisponibilidade explícito]
+    P -->|Sim| M[MediaPipe Tasks em CPU]
+    M --> D{Pose com visibilidade suficiente?}
+    D -->|Não| N[Sem pose e sem anomalia de pose]
+    D -->|Sim| K[Pontos corporais e deslocamento normalizado]
+    K --> T[Limiar demonstrativo e revisão humana]
+    O --> J[Relatório persistido no job]
+    OFF --> J
+    U --> J
+    N --> J
+    T --> J
+```

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.db.models import Alert, ClinicalEvent, JobStatus, MediaFile, Patient, ProcessingJob
 from app.modules.video.processor import DISCLAIMER, VideoProcessingError, analyze_video
+from app.modules.video.pose import analyze_pose
 
 
 def process_video_job(
@@ -34,9 +35,10 @@ def process_video_job(
             abrupt_motion_threshold=settings.video_abrupt_motion_threshold,
             max_frames=settings.video_max_frames,
         )
+        pose = analyze_pose(Path(media.storage_path), settings)
         events: list[ClinicalEvent] = []
         alerts: list[Alert] = []
-        for anomaly in analysis.anomalies:
+        for anomaly in [*analysis.anomalies, *pose["anomalies"]]:
             event = ClinicalEvent(
                 patient_id=patient.id,
                 source="video_analysis",
@@ -51,6 +53,7 @@ def process_video_job(
                     "threshold": anomaly["threshold"],
                     "unit": anomaly["unit"],
                     "disclaimer": DISCLAIMER,
+                    "requires_human_review": True,
                 },
             )
             db.add(event)
@@ -68,7 +71,10 @@ def process_video_job(
         job.status = JobStatus.COMPLETED.value
         job.progress = 100.0
         job.result = {
-            "analysis": analysis.to_dict(),
+            "analysis": {**analysis.to_dict(), "pose": pose,
+                         "analysis_types": ["opencv_frame_difference"] + (["mediapipe_pose"] if pose["status"] in {"completed", "no_pose"} else []),
+                         "thresholds": {"low_motion": settings.video_low_motion_threshold, "abrupt_motion": settings.video_abrupt_motion_threshold},
+                         "requires_human_review": True},
             "event_ids": [item.id for item in events],
             "alert_ids": [item.id for item in alerts],
         }

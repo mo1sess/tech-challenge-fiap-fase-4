@@ -136,7 +136,7 @@ async def test_audio_vital_correlation(
 
     assert event["payload"]["requires_human_review"] is True
 
-    # Verify persistence.
+    # Verifica a persistência.
     events_response = await client.get(
         f"/api/v1/events?patient_id={patient_id}"
     )
@@ -194,7 +194,7 @@ async def test_no_correlation_outside_time_window(
         monkeypatch,
     )
 
-    # Historical synthetic measurement outside the window.
+    # Medição sintética histórica fora da janela.
     await create_vital_event(
         client,
         patient_id,

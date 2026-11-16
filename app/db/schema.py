@@ -1,4 +1,4 @@
-"""Fail startup with an actionable message when an explicit upgrade is pending."""
+"""Interrompe a inicialização com orientação quando há migração pendente."""
 
 from sqlalchemy import inspect
 

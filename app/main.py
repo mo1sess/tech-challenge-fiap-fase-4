@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
-from app.db import models  # noqa: F401 - ensures model metadata is registered
+from app.db import models  # noqa: F401 - registra os metadados dos modelos
 from app.db.base import Base
 from app.db.schema import check_schema
 from app.schemas.common import HealthResponse

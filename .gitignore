@@ -16,5 +16,15 @@ storage/*.wav
 storage/*.mp3
 storage/*.m4a
 storage/*.ogg
+storage/models/
+storage/validation/
 *.db
+*.sql
+*.dump
+*.backup
+*.avi
+*.mp4
+*.mov
+*.mkv
+*.task
 

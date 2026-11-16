@@ -10,6 +10,7 @@ from app.modules.audio.acoustic import AcousticAnalysisError, analyze_acoustics
 from app.modules.audio.azure_speech import (AudioTranscriptionError,
                                             transcribe_wav)
 from app.modules.audio.text_analysis import analyze_text
+from app.modules.audio.azure_language import analyze_language
 from app.services.audio_event_flow import create_audio_review_events
 
 AUDIO_DISCLAIMER = (
@@ -44,21 +45,23 @@ def process_audio_job(
     try:
         audio_path = Path(media.storage_path)
 
-        # 1. Transcricao com Azure Speech
+        # Validar WAV antes de qualquer chamada paga.
+        acoustic = analyze_acoustics(audio_path)
+        # 1. Transcrição com Azure Speech.
         transcription = transcribe_wav(
             audio_path,
             settings,
         )
 
-        # 2. Analise acustica local
-        acoustic = analyze_acoustics(audio_path)
+        # 2. Análise opcional de sentimento e entidades com Azure AI Language.
+        language_analysis = analyze_language(str(transcription.get("text", "")), settings)
 
-        # 3. Analise textual contextual
+        # 3. Análise textual contextual local.
         text_analysis = analyze_text(
             str(transcription.get("text", ""))
         )
 
-        # 4. Geracao de eventos demonstrativos
+        # 4. Geração de eventos demonstrativos.
         events = create_audio_review_events(
             db,
             patient_id=patient.id,
@@ -67,10 +70,10 @@ def process_audio_job(
             text_analysis=text_analysis.to_dict(),
         )
 
-        # Alertas clinicos automaticos ainda nao implementados
+        # Este fluxo de áudio não gera alertas automáticos.
         alerts: list[Alert] = []
 
-        # 5. Persistencia do resultado
+        # 5. Persistência do resultado.
         job.status = JobStatus.COMPLETED.value
         job.progress = 100.0
         job.result = {
@@ -78,6 +81,7 @@ def process_audio_job(
                 "transcription": transcription,
                 "acoustic": acoustic.to_dict(),
                 "text_analysis": text_analysis.to_dict(),
+                "azure_language": language_analysis,
                 "disclaimer": AUDIO_DISCLAIMER,
             },
             "event_ids": [event.id for event in events],

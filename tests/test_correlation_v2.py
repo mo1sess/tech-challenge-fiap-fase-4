@@ -157,7 +157,7 @@ async def test_three_source_correlation(
 
     events = response.json()
 
-    # Triple takes priority over overlapping video pairs.
+    # O trio tem prioridade sobre pares de vídeo sobrepostos.
     assert len(events) == 1
 
     payload = events[0]["payload"]
@@ -171,7 +171,7 @@ async def test_three_source_correlation(
     }
     assert payload["time_span_seconds"] <= 300
 
-    # Verify idempotency.
+    # Verifica a idempotência.
     repeated = await run_v2(client, patient_id)
     assert repeated.status_code == 200
     assert repeated.json() == []

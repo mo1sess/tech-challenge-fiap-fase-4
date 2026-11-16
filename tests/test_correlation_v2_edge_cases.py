@@ -74,7 +74,7 @@ def test_database_rejects_duplicate_correlation_key(db):
             db.add(duplicate)
             db.flush()
 
-    # The original record remains valid.
+    # O registro original permanece válido.
     assert correlate(db, patient.id) == []
 
 def make_patient(db, code="MG-CORR-001"):
@@ -166,10 +166,10 @@ def test_triple_uses_full_time_span(db):
 
     result = correlate(db, patient.id)
 
-    # Each neighboring pair qualifies.
+    # Cada par de eventos vizinhos é elegível.
     assert len(result) == 2
 
-    # But the complete six-minute span does not.
+    # O conjunto completo de seis minutos não é elegível.
     assert all(
         item.payload["source_count"] == 2
         for item in result

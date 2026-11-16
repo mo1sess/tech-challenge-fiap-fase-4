@@ -1,9 +1,6 @@
-"""MedGuard AI – Multimodal Monitoring Dashboard v2.
+"""Dashboard de monitoramento multimodal do MedGuard AI.
 
-Drop this file in dashboard/multimodal_v2.py.
-Call render_multimodal_dashboard(api_request, load_patients) inside an existing
-Streamlit tab. Displays only synthetic/educational temporal co-occurrence.
-"""
+Apresenta dados sintéticos e coocorrências temporais de finalidade educacional."""
 from __future__ import annotations
 
 from collections import Counter
@@ -88,7 +85,7 @@ def render_multimodal_dashboard(
     api_request: Callable[..., Any],
     load_patients: Callable[[], list[dict[str, Any]]],
 ) -> None:
-    """Render the replacement content inside `with multimodal_tab:`."""
+    """Apresenta o monitoramento na aba multimodal da aplicação Streamlit."""
     st.header("Centro de monitoramento multimodal")
     st.caption("Dados exclusivamente sintéticos · coocorrência temporal não indica causalidade nem diagnóstico")
 
@@ -146,8 +143,8 @@ def render_multimodal_dashboard(
     for column, (label, value) in zip(st.columns(5), kpis):
         column.metric(label, value)
 
-    summary_tab, vitals_tab, correlation_tab, timeline_tab, alerts_tab = st.tabs([
-        "Visão executiva", "Tendências vitais", "Explorador de correlações", "Linha do tempo", "Alertas"
+    summary_tab, vitals_tab, correlation_tab, timeline_tab, alerts_tab, reports_tab = st.tabs([
+        "Visão executiva", "Tendências vitais", "Explorador de correlações", "Linha do tempo", "Alertas", "Relatórios de mídia"
     ])
 
     with summary_tab:
@@ -269,5 +266,33 @@ def render_multimodal_dashboard(
                 "Mensagem": a.get("message"),
                 "ID evento": a.get("event_id"),
             } for a in chosen], width="stretch", hide_index=True)
+
+            severity = st.multiselect("Severidades da fila", list(SEVERITIES), default=list(SEVERITIES), format_func=lambda s: SEVERITIES[s], key="review_severity")
+            queue = [a for a in chosen if a.get("severity") in severity]
+            if queue:
+                selected = st.selectbox("Alerta para revisão simulada", queue, format_func=lambda a: f"{a['id'][:8]} · {a['message']}", key="review_alert")
+                lookup = {e['id']: e for e in events}
+                st.caption(f"Paciente: {selection} · Origem: {lookup.get(selected['event_id'], {}).get('source', 'Evento fora do recorte')}")
+                reviewer = st.text_input("Responsável fictício", value="Equipe fictícia de revisão", key="reviewer")
+                note = st.text_area("Nota de revisão demonstrativa", max_chars=1000, key="review_note")
+                for target, label in (("acknowledged", "Reconhecer alerta"), ("resolved", "Resolver alerta")):
+                    if st.button(label, key=f"review_{target}", disabled=selected['status'] in {target, 'resolved'}):
+                        result = api_request("PATCH", f"/alerts/{selected['id']}", json={"status": target, "reviewer": reviewer, "note": note})
+                        if result is not None:
+                            st.rerun()
+                history = api_request("GET", f"/alerts/{selected['id']}/history", params={"patient_id": patient_id})
+                st.markdown("**Histórico persistido de ações**")
+                st.dataframe(history or [], width="stretch", hide_index=True)
+                st.caption("Criação registrada no alerta; ações novas registram responsável e horário. Nenhuma mensagem externa é enviada.")
+
+    with reports_tab:
+        from reports import render_job_report
+        jobs = api_request("GET", "/jobs", params={"patient_id": patient_id, "limit": 500}) or []
+        jobs = _filtered(jobs, "created_at", since)
+        if jobs:
+            chosen_job = st.selectbox("Relatório persistido", jobs, format_func=lambda j: f"{j['job_type']} · {_fmt_date(j.get('created_at'))} · {j['id'][:8]}", key="report_job")
+            render_job_report(chosen_job)
+        else:
+            st.info("Nenhum job disponível para este paciente no período.")
 
     st.caption("Escopo: no máximo 500 registros recentes por recurso. Períodos aplicam filtros aos dados retornados pela API.")

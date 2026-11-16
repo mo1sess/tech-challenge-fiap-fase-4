@@ -4,7 +4,7 @@
 
 ## Convenções e contratos
 
-Base padrão: `http://localhost:8000/api/v1`. Os caminhos abaixo são relativos a essa base, exceto `/health`. Consulte os contratos gerados em `http://localhost:8000/docs` e `http://localhost:8000/openapi.json`. Fonte: [rotas](../app/api/routes/) e [schemas](../app/schemas/).
+Base padrão: `http://localhost:8000/api/v1`. Os caminhos abaixo são relativos a essa base, exceto `/health`. Consulte os contratos gerados em `http://localhost:8000/docs` e `http://localhost:8000/openapi.json`. Fonte: [rotas](../app/api/routes/) e [esquemas](../app/schemas/).
 
 Não há autenticação. Envie JSON com `Content-Type: application/json`, exceto upload multipart. IDs são strings geradas como UUID; substitua os valores dos exemplos pelos IDs retornados. Datas usam ISO 8601; prefira UTC explícito, como `2026-11-13T15:00:00Z`.
 
@@ -14,7 +14,7 @@ Entradas de pacientes, medições, prescrições e movimentações aceitam somen
 
 ### Respostas compartilhadas
 
-| Schema | Campos retornados |
+| Esquema | Campos retornados |
 |---|---|
 | `PatientRead` | `id`, `code`, `alias`, `birth_year`, `notes`, `is_synthetic`, `created_at` |
 | `MeasurementRead` | `id`, `patient_id`, `measured_at`, quatro métricas, `source`, `is_synthetic`, `created_at` |
@@ -24,8 +24,9 @@ Entradas de pacientes, medições, prescrições e movimentações aceitam somen
 | `MovementRead` | `id`, `patient_id`, `from_location`, `to_location`, `recorded_at`, `is_synthetic` |
 | `MediaFileRead` | `id`, `patient_id`, `kind`, `original_filename`, `content_type`, `sha256`, `size_bytes`, `is_synthetic`, `created_at` |
 | `ProcessingJobRead` | `id`, `patient_id`, `media_file_id`, `job_type`, `status`, `progress`, `result`, `error`, `created_at`, `updated_at` |
+| `AlertReviewRead` | `id`, `alert_id`, `previous_status`, `status`, `reviewer`, `note`, `created_at` |
 
-`correlation_key` e `storage_path` não integram os schemas de evento/mídia. IDs em `payload` são referências JSON. `result` e `payload` variam por fluxo; consulte [Arquitetura](ARCHITECTURE.md).
+`correlation_key` e `storage_path` não integram os esquemas de evento/mídia. IDs em `payload` são referências JSON. `result` e `payload` variam por fluxo; consulte [Arquitetura](ARCHITECTURE.md).
 
 ### Erros comuns
 
@@ -71,7 +72,7 @@ Invoke-RestMethod "$base/patients?limit=100"
 Invoke-RestMethod "$base/patients/$pacienteId"
 ```
 
-POST e GET individual retornam `PatientRead`; listagem retorna array desse schema. Não há exclusão/atualização de paciente implementada.
+POST e GET individual retornam `PatientRead`; listagem retorna array desse esquema. Não há exclusão/atualização de paciente implementada.
 
 ## Medições
 
@@ -118,7 +119,8 @@ Retorna `EventRead[]`. Um filtro de paciente inexistente retorna `[]`, sem 404. 
 | Método | Caminho | Objetivo/entrada | Status |
 |---|---|---|---|
 | GET | `/alerts` | Query `patient_id`, `status` opcionais e `limit` | 200; 422 para limite inválido |
-| PATCH | `/alerts/{alert_id}` | Atualizar, corpo `AlertStatusUpdate` | 200; 404; 422 |
+| PATCH | `/alerts/{alert_id}` | Atualizar, corpo `AlertStatusUpdate` | 200; 404; 409; 422 |
+| GET | `/alerts/{alert_id}/history` | Histórico; query `patient_id` opcional | 200; 404 |
 
 Filtro `status` é string livre; valores desconhecidos normalmente retornam lista vazia. Status persistidos pelos fluxos: `open`, `acknowledged`, `resolved`. PATCH exige `status` em `acknowledged` ou `resolved`; não aceita `open`.
 
@@ -130,7 +132,11 @@ if ($alertas.Count -gt 0) {
 }
 ```
 
-GET retorna `AlertRead[]`; PATCH retorna `AlertRead`. Reconhecimento define `acknowledged_at`. Resolver não cria data de resolução nem apaga reconhecimento anterior; não há máquina de transições ou auditoria de operador. Áudio e correlações não criam alertas.
+GET retorna `AlertRead[]`; PATCH retorna `AlertRead`. Reconhecimento define `acknowledged_at`. Resolver preserva esse reconhecimento e registra a resolução em uma ação de histórico com data e hora; não há campo `resolved_at` em `AlertRead`. Repetir o mesmo estado é idempotente; tentar reconhecer um alerta já resolvido retorna 409. A identidade de revisão é declarativa, sem autenticação ou auditoria de identidade real. Áudio e correlações não criam alertas.
+
+`AlertStatusUpdate` exige `status` e aceita `reviewer` (2–120 caracteres não vazios, padrão `Equipe fictícia de revisão`) e `note` (opcional, até 1000 caracteres). Utilize apenas dados fictícios.
+
+`GET /alerts/{alert_id}/history?patient_id=ID` retorna ações em ordem cronológica: `id`, `alert_id`, `previous_status`, `status`, `reviewer`, `note`, `created_at`. Paciente opcional restringe a consulta; incompatibilidade ou alerta ausente retorna 404. A criação consta de `Alert.created_at`; não são fabricadas ações de revisão para registros antigos.
 
 ## Prescrições fictícias
 
@@ -216,7 +222,7 @@ Vídeo salva `result.analysis` com metadados e métricas; áudio salva `analysis
 Sem corpo. Query `window_minutes`: inteiro 1–60, padrão 5. Exige paciente sintético. Retorna somente `EventRead[]` **novos**, inclusive `[]` quando nada novo é elegível.
 
 ```powershell
-Invoke-RestMethod -Method Post "$base/patients/$pacienteId/correlations/run?window_minutes=5"
+Invoke-RestMethod -Method Post "$base/patients/$pacienteId/correlations/runówindow_minutes=5"
 $novas = Invoke-RestMethod -Method Post "$base/patients/$pacienteId/correlations/run-v2?window_minutes=5"
 $repetidas = Invoke-RestMethod -Method Post "$base/patients/$pacienteId/correlations/run-v2?window_minutes=5"
 ```
@@ -264,4 +270,11 @@ Vital retorna `DemoFlowResponse`: `patient`, `result` com medição/eventos/aler
 
 ## Limites da referência
 
-Os comandos que gravam dados são exemplos para ambiente educacional; não são executados automaticamente por esta documentação. Não há endpoints implementados para exclusão, exportação, login, envio de notificações ou ingestão direta de eventos. OpenAPI e código são a fonte operacional dos contratos; qualquer mudança de prefixo, schema ou rota exige revisar esta referência.
+Os comandos que gravam dados são exemplos para ambiente educacional; não são executados automaticamente por esta documentação. Não há endpoints implementados para exclusão, exportação, login, envio de notificações ou ingestão direta de eventos. OpenAPI e código são a fonte operacional dos contratos; qualquer mudança de prefixo, esquema ou rota exige revisar esta referência.
+
+
+## Resultados de análise e relatórios
+
+Jobs de áudio acrescentam `analysis.azure_language` e novos campos em `analysis.acoustic`. Jobs de vídeo acrescentam `analysis.pose`, `analysis_types`, `thresholds` e `requires_human_review`. Consulte a seção de evolução na arquitetura para unidades e estados. Endpoints antigos permanecem disponíveis.
+
+Não existe uma rota `/reports`: o dashboard monta os relatórios a partir de `GET /jobs?patient_id=ID` e `GET /jobs/{job_id}`, lendo `result.analysis`. Em `analysis.pose`, `sampled_frames` conta amostras processadas, `detected_frames` conta poses aceitas, `compared_pairs` conta pares consecutivos válidos e `landmarks` contém os 33 pontos da última pose aceita. `peak_displacement` é `null` quando não há comparação válida. Estados indisponível/desabilitado/erro não significam inferência positiva; `no_pose` significa que nenhuma pose confiável foi aceita no vídeo decodificado pela pipeline. A métrica é demonstrativa e não estabelece diagnóstico.
