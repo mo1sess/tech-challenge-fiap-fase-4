@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +18,11 @@ class Settings(BaseSettings):
     video_abrupt_motion_threshold: float = 20.0
     video_max_frames: int = 900
     cors_origins: list[str] | str = ["http://localhost:8501"]
+    speech_provider: Literal["local", "azure"] = "local"
+    whisper_model_size: str = "base"
+    whisper_device: str = "cpu"
+    whisper_compute_type: str = "int8"
+    whisper_model_dir: Path | None = None
     azure_speech_key: str | None = None
     azure_speech_region: str | None = None
     azure_language_endpoint: str | None = None

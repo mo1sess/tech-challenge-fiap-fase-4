@@ -4,10 +4,9 @@ from pathlib import Path
 import azure.cognitiveservices.speech as speechsdk
 
 from app.core.config import Settings
+from app.modules.audio.transcription import AudioTranscriptionError
 
-
-class AudioTranscriptionError(Exception):
-    """Erro durante a transcrição de áudio."""
+__all__ = ["AudioTranscriptionError", "transcribe_azure", "transcribe_wav"]
 
 
 def transcribe_wav(
@@ -72,3 +71,7 @@ def transcribe_wav(
     raise AudioTranscriptionError(
         f"Resultado inesperado do Azure Speech: {result.reason}"
     )
+
+
+# Nome explícito usado pelo despachante em transcription.py.
+transcribe_azure = transcribe_wav

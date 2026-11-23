@@ -17,7 +17,7 @@ Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto ofer
 - Detecção demonstrativa de baixa variação ou mudança visual abrupta → evento → alerta.
 - Job de vídeo rastreável nos estados `queued`, `processing`, `completed` e `failed`.
 - Vídeo geométrico sintético gerado por código para uma demonstração reproduzível.
-- Transcrição de áudio WAV sintético com Azure Speech, sem credenciais no repositório.
+- Transcrição de áudio WAV sintético local com faster-whisper (padrão, sem credenciais) ou Azure Speech opcional (`SPEECH_PROVIDER=azure`).
 - Métricas acústicas locais de duração, RMS, pico, silêncio e clipping.
 - Análise textual determinística com tratamento de negação, contexto histórico e terceiros.
 - Eventos de revisão humana para achados afirmativos, sem alerta ou diagnóstico automático.
@@ -27,6 +27,7 @@ Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto ofer
 - Verificação demonstrativa da continuidade de movimentações fictícias, incluindo origem/destino iguais, quebra de continuidade e transferências muito próximas.
 - Eventos e alertas rastreáveis para anomalias temporais e operacionais, sempre sujeitos a revisão humana.
 - Testes básicos da API, proteção contra dados não sintéticos, alertas e upload.
+- Dashboard com resumo legível em pt-BR em todas as abas e o registro bruto da API disponível sob demanda.
 
 ## Arquitetura
 
@@ -40,7 +41,7 @@ flowchart LR
     EVENT --> ALERT[Alerta persistido]
     API --> VIDEO[OpenCV + análise de movimento]
     VIDEO --> EVENT
-    API --> AUDIO[Azure Speech + análise acústica e textual]
+    API --> AUDIO[Transcrição local faster-whisper ou Azure + análise acústica e textual]
     AUDIO --> EVENT
     API --> TEMPORAL[Regras temporais sintéticas]
     API --> OPERATIONS[Prescrições e movimentações fictícias]
@@ -57,7 +58,7 @@ app/
   api/routes/        endpoints REST
   core/              configuração
   db/                modelos SQLAlchemy
-  modules/audio/     Azure Speech, análise acústica e regras textuais
+  modules/audio/     transcrição (faster-whisper/Azure), análise acústica e regras textuais
   modules/video/     leitura de quadros e análise de movimento com OpenCV
   schemas/           validação e contratos da API
   services/          fluxos multimodais, temporais e operacionais até eventos/alertas
@@ -105,6 +106,22 @@ Pré-requisitos: Docker Desktop e Docker Compose.
 
 Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apaga os dados locais do projeto.
 
+## Como o dashboard apresenta os resultados
+
+Cada aba mostra primeiro um **resumo em português** e deixa o JSON completo da API no bloco recolhido **Ver registro bruto**:
+
+| Aba | Resumo exibido |
+|---|---|
+| Visão geral | Alertas abertos por severidade, resultado da demonstração (valores, regras violadas, severidade) e tabela compacta de alertas |
+| Pacientes fictícios | Código, nome, ano de nascimento, marcação sintética e data de cadastro |
+| Sinais vitais | Valores com unidades, regras disparadas com motivo, tendências detectadas e conclusão |
+| Mídia e jobs | Arquivo, tipo, tamanho, hash curto, status do job e etapas do pipeline |
+| Análise de vídeo | Quadros analisados, movimento médio e pico, anomalias (valor observado × limite) e conclusão; seletor de análises concluídas |
+| Análise de áudio | Transcrição, métricas acústicas, achados com contexto (afirmado, negado, histórico, terceiros), indicação de quais geraram evento e conclusão; seletor de análises concluídas |
+| Prescrições e movimentações | Ação registrada, inconsistências detectadas em linguagem clara e conclusão |
+
+A lógica dos resumos fica em funções puras em `dashboard/*_summary.py`, testadas sem o Streamlit. Os horários são exibidos em UTC.
+
 ## Demonstrações em menos de um minuto
 
 ### Séries temporais e operações — Etapa 4
@@ -113,7 +130,7 @@ Na aba **Prescrições e movimentações**, selecione um paciente fictício e re
 
 A aplicação:
 
-1. analisa uma janela recente de quatro medições sintéticas;
+1. analisa uma janela recente de quatro medições sintéticas (quando a medição chega sem `measured_at`, o horário automático é sempre posterior ao da medição anterior do mesmo paciente, para que relógios de baixa resolução não embaralhem a ordem da janela);
 2. registra eventos para tendências configuradas e transparentes;
 3. compara cada ação de prescrição fictícia com o último estado do mesmo código;
 4. compara cada movimentação fictícia com o destino anterior;
@@ -126,12 +143,12 @@ As regras comprovam o fluxo de software e não representam limites clínicos, va
 Na aba **Mídia e jobs**, envie somente um arquivo WAV inteiramente sintético e marque-o como fictício. Depois, na aba **Análise de áudio**, processe o job. A aplicação:
 
 1. valida o paciente e a mídia sintéticos;
-2. transcreve o WAV em português com Azure Speech;
+2. transcreve o WAV em português com faster-whisper local (padrão) ou Azure Speech (`SPEECH_PROVIDER=azure`);
 3. calcula métricas acústicas locais;
 4. aplica regras textuais contextuais;
 5. persiste eventos de revisão humana, sem criar diagnóstico ou alerta clínico automático.
 
-As credenciais `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` devem existir apenas no arquivo local `.env`.
+Por padrão (`SPEECH_PROVIDER=local`) nenhuma credencial é necessária; o modelo Whisper (`WHISPER_MODEL_SIZE`, padrão `base`, ~145 MB) é baixado na primeira transcrição e cacheado em `WHISPER_MODEL_DIR` (volume `whisper_models` no Docker). Com `SPEECH_PROVIDER=azure`, `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` devem existir apenas no arquivo local `.env`.
 
 ### Vídeo — Etapa 2
 
@@ -206,7 +223,7 @@ O upload salva o arquivo, calcula o hash, cria `media_files` e registra um `proc
 
 ### Como a análise de áudio funciona
 
-O adaptador Azure Speech transcreve o WAV sintético em `pt-BR`. Em seguida, o pipeline calcula métricas acústicas e aplica regras contextuais transparentes sobre o texto. Expressões afirmativas podem criar eventos de baixa severidade para revisão humana; não são gerados diagnósticos nem alertas clínicos automáticos. Os testes substituem a chamada Azure por mocks e geram áudio sintético em memória.
+O adaptador de transcrição (faster-whisper local por padrão; Azure Speech opcional) transcreve o WAV sintético em `pt-BR`. Em seguida, o pipeline calcula métricas acústicas e aplica regras contextuais transparentes sobre o texto. Expressões afirmativas podem criar eventos de baixa severidade para revisão humana; não são gerados diagnósticos nem alertas clínicos automáticos. Os testes substituem a transcrição por mocks (o CI não baixa modelo) e geram áudio sintético em memória.
 
 ### Como a análise funciona
 
@@ -238,14 +255,14 @@ O workflow `.github/workflows/ci.yml` repete essa validação automaticamente em
 
 ## Variáveis de ambiente
 
-Consulte `.env.example`. Para processar áudio fora dos testes, configure localmente `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION`. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
+Consulte `.env.example`. Áudio roda localmente por padrão (`SPEECH_PROVIDER=local`, `WHISPER_MODEL_SIZE=base`, `WHISPER_DEVICE=cpu`, `WHISPER_COMPUTE_TYPE=int8`, `WHISPER_MODEL_DIR` opcional). Para usar Azure, defina `SPEECH_PROVIDER=azure` e configure localmente `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION`. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
 
 ## Correspondência com o Tech Challenge
 
 | Requisito final | Estado após a Etapa 4 |
 |---|---|
 | Vídeo clínico e eventos fora do padrão | Pipeline OpenCV, métricas de movimento, eventos e alertas demonstrativos implementados com vídeo sintético |
-| Áudio, transcrição e análise textual | Azure Speech, métricas acústicas e análise textual determinística implementados para WAV sintético |
+| Áudio, transcrição e análise textual | faster-whisper local (Azure opcional), métricas acústicas e análise textual determinística implementados para WAV sintético |
 | Anomalias em sinais vitais | Regras pontuais e análise temporal transparente sobre janelas de medições sintéticas |
 | Prescrições e movimentação | Detectores demonstrativos de sequência e continuidade implementados com dados fictícios |
 | Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais, vídeo, prescrições e movimentações |

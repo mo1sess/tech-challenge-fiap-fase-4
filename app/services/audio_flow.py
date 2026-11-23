@@ -7,9 +7,9 @@ from app.core.config import Settings
 from app.db.models import (Alert, ClinicalEvent, JobStatus, MediaFile, Patient,
                            ProcessingJob)
 from app.modules.audio.acoustic import AcousticAnalysisError, analyze_acoustics
-from app.modules.audio.azure_speech import (AudioTranscriptionError,
-                                            transcribe_wav)
 from app.modules.audio.text_analysis import analyze_text
+from app.modules.audio.transcription import (AudioTranscriptionError,
+                                             transcribe_wav)
 from app.services.audio_event_flow import create_audio_review_events
 
 AUDIO_DISCLAIMER = (
@@ -44,7 +44,7 @@ def process_audio_job(
     try:
         audio_path = Path(media.storage_path)
 
-        # 1. Transcricao com Azure Speech
+        # 1. Transcricao (provedor conforme SPEECH_PROVIDER: local faster-whisper ou Azure)
         transcription = transcribe_wav(
             audio_path,
             settings,
