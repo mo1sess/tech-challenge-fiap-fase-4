@@ -294,9 +294,5 @@ Consulte [.env.example](.env.example). O provedor padrão é `SPEECH_PROVIDER=lo
 | Fusão multimodal | Correlação temporal preliminar implementada; evolução e validação continuam nas próximas etapas |
 | Relatório técnico | [Fluxo, modelos e resultados da Fase 4](docs/RELATORIO_TECNICO.md) |
 
-## Próximas etapas
 
-1. Evoluir o analisador de vídeo com pose opcional e validação sobre material inteiramente sintético.
-2. Ampliar a correlação multimodal e consolidar eventos relacionados em uma linha do tempo.
-3. Aprimorar alertas, métricas de qualidade, observabilidade e validação para a entrega final.
 
