@@ -1,9 +1,33 @@
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Alert, ClinicalEvent, ClinicalMeasurement, Patient, utcnow
 from app.schemas.clinical import MeasurementCreate
 from app.services.temporal_analysis import evaluate_recent_trends
 from app.services.vital_signs import DISCLAIMER, SEVERITY_RANK, evaluate_vital_signs, highest_severity
+
+
+def _next_measured_at(db: Session, patient_id: str) -> datetime:
+    """Horário automático estritamente crescente por paciente.
+
+    Em relógios de baixa resolução (ex.: Windows), medições enviadas em sequência
+    podem receber o mesmo `utcnow()`. Como a análise temporal ordena por
+    `measured_at`, o empate deixava a ordem da janela instável. Aqui, se o novo
+    horário não for posterior ao último registrado, avança 1 microssegundo.
+    """
+    now = utcnow()
+    last = db.scalar(
+        select(func.max(ClinicalMeasurement.measured_at)).where(
+            ClinicalMeasurement.patient_id == patient_id
+        )
+    )
+    if last is None:
+        return now
+    if last.tzinfo is None:  # SQLite devolve datetime sem fuso
+        last = last.replace(tzinfo=UTC)
+    return now if now > last else last + timedelta(microseconds=1)
 
 
 def ingest_synthetic_measurement(
@@ -13,7 +37,7 @@ def ingest_synthetic_measurement(
 ) -> tuple[ClinicalMeasurement, list[ClinicalEvent], list[Alert]]:
     measurement = ClinicalMeasurement(
         patient_id=patient.id,
-        measured_at=payload.measured_at or utcnow(),
+        measured_at=payload.measured_at or _next_measured_at(db, patient.id),
         heart_rate_bpm=payload.heart_rate_bpm,
         spo2_percent=payload.spo2_percent,
         systolic_mmhg=payload.systolic_mmhg,
