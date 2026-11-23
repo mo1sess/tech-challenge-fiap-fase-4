@@ -27,6 +27,7 @@ Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto ofer
 - Verificação demonstrativa da continuidade de movimentações fictícias, incluindo origem/destino iguais, quebra de continuidade e transferências muito próximas.
 - Eventos e alertas rastreáveis para anomalias temporais e operacionais, sempre sujeitos a revisão humana.
 - Testes básicos da API, proteção contra dados não sintéticos, alertas e upload.
+- Dashboard com resumo legível em pt-BR em todas as abas e o registro bruto da API disponível sob demanda.
 
 ## Arquitetura
 
@@ -105,6 +106,22 @@ Pré-requisitos: Docker Desktop e Docker Compose.
 
 Para recriar também o volume PostgreSQL, use `docker compose down -v`. Isso apaga os dados locais do projeto.
 
+## Como o dashboard apresenta os resultados
+
+Cada aba mostra primeiro um **resumo em português** e deixa o JSON completo da API no bloco recolhido **Ver registro bruto**:
+
+| Aba | Resumo exibido |
+|---|---|
+| Visão geral | Alertas abertos por severidade, resultado da demonstração (valores, regras violadas, severidade) e tabela compacta de alertas |
+| Pacientes fictícios | Código, nome, ano de nascimento, marcação sintética e data de cadastro |
+| Sinais vitais | Valores com unidades, regras disparadas com motivo, tendências detectadas e conclusão |
+| Mídia e jobs | Arquivo, tipo, tamanho, hash curto, status do job e etapas do pipeline |
+| Análise de vídeo | Quadros analisados, movimento médio e pico, anomalias (valor observado × limite) e conclusão; seletor de análises concluídas |
+| Análise de áudio | Transcrição, métricas acústicas, achados com contexto (afirmado, negado, histórico, terceiros), indicação de quais geraram evento e conclusão; seletor de análises concluídas |
+| Prescrições e movimentações | Ação registrada, inconsistências detectadas em linguagem clara e conclusão |
+
+A lógica dos resumos fica em funções puras em `dashboard/*_summary.py`, testadas sem o Streamlit. Os horários são exibidos em UTC.
+
 ## Demonstrações em menos de um minuto
 
 ### Séries temporais e operações — Etapa 4
@@ -113,7 +130,7 @@ Na aba **Prescrições e movimentações**, selecione um paciente fictício e re
 
 A aplicação:
 
-1. analisa uma janela recente de quatro medições sintéticas;
+1. analisa uma janela recente de quatro medições sintéticas (quando a medição chega sem `measured_at`, o horário automático é sempre posterior ao da medição anterior do mesmo paciente, para que relógios de baixa resolução não embaralhem a ordem da janela);
 2. registra eventos para tendências configuradas e transparentes;
 3. compara cada ação de prescrição fictícia com o último estado do mesmo código;
 4. compara cada movimentação fictícia com o destino anterior;
