@@ -4,6 +4,14 @@ Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto ofer
 
 > **Uso exclusivamente educacional.** O projeto aceita somente dados fictícios ou sintéticos, não é um dispositivo médico, não oferece diagnóstico e não deve apoiar decisões clínicas reais. Os limites usados no detector são exemplos de software, não referências clínicas universais.
 
+## Relatório Técnico — Entregáveis da Fase 4
+
+O [relatório técnico](docs/RELATORIO_TECNICO.md) documenta a implementação da `main` e reúne os resultados e exemplos para avaliação.
+
+1. [Descrição do fluxo multimodal](docs/RELATORIO_TECNICO.md#descrição-do-fluxo-multimodal)
+2. [Modelos utilizados em cada modalidade](docs/RELATORIO_TECNICO.md#modelos-utilizados-em-cada-modalidade)
+3. [Resultados obtidos e exemplos de anomalias](docs/RELATORIO_TECNICO.md#resultados-obtidos-e-exemplos-de-anomalias)
+
 ## O que as Etapas 1–4 entregam
 
 - API REST FastAPI com Swagger em `http://localhost:8000/docs`.
@@ -33,23 +41,28 @@ Implementação das Etapas 1 a 4 do Tech Challenge FIAP - Fase 4. O projeto ofer
 
 ```mermaid
 flowchart LR
-    UI[Dashboard Streamlit] -->|REST| API[FastAPI]
-    API --> DB[(PostgreSQL)]
-    API --> FS[Storage local de mídia]
-    API --> VITAL[Regras sintéticas de sinais vitais]
-    VITAL --> EVENT[Evento clínico normalizado]
-    EVENT --> ALERT[Alerta persistido]
-    API --> VIDEO[OpenCV + análise de movimento]
-    VIDEO --> EVENT
-    API --> AUDIO[Transcrição local faster-whisper ou Azure + análise acústica e textual]
-    AUDIO --> EVENT
-    API --> TEMPORAL[Regras temporais sintéticas]
-    API --> OPERATIONS[Prescrições e movimentações fictícias]
-    TEMPORAL --> EVENT
-    OPERATIONS --> EVENT
+    UI["Dashboard Streamlit"] -->|REST| API["FastAPI"]
+    API --> FS["Armazenamento local de mídia"]
+    API --> VITAL["Regras pontuais de sinais vitais"]
+    API --> VIDEO["Análise de movimento com OpenCV"]
+    API --> AUDIO["Transcrição, análise acústica e regras textuais"]
+    API --> TEMPORAL["Regras de tendência de sinais vitais"]
+    API --> OPERATIONS["Regras de prescrições e movimentações"]
+    VITAL --> ALERT["Eventos e alertas"]
+    VIDEO --> ALERT
+    TEMPORAL --> ALERT
+    OPERATIONS --> ALERT
+    AUDIO --> REVIEW["Eventos de revisão"]
+    API --> PAIR["Correlação temporal sob demanda"]
+    DB -->|Eventos de áudio e sinais vitais| PAIR
+    PAIR --> CORRELATED["Eventos de correlação"]
+    ALERT --> DB[("PostgreSQL")]
+    REVIEW --> DB
+    CORRELATED --> DB
+    API --> DB
 ```
 
-O desenho é um monólito modular: fácil de executar agora e com limites claros para substituir cada processador por implementação assíncrona nas etapas seguintes.
+A API reúne rotas, serviços e processadores em um monólito modular. O dashboard roda em processo separado e consulta a API.
 
 ## Estrutura principal
 
@@ -225,12 +238,12 @@ O upload salva o arquivo, calcula o hash, cria `media_files` e registra um `proc
 
 O adaptador de transcrição (faster-whisper local por padrão; Azure Speech opcional) transcreve o WAV sintético em `pt-BR`. Em seguida, o pipeline calcula métricas acústicas e aplica regras contextuais transparentes sobre o texto. Expressões afirmativas podem criar eventos de baixa severidade para revisão humana; não são gerados diagnósticos nem alertas clínicos automáticos. Os testes substituem a transcrição por mocks (o CI não baixa modelo) e geram áudio sintético em memória.
 
-### Como a análise funciona
+### Como a análise de vídeo funciona
 
 O processador reduz cada quadro amostrado para uma matriz em tons de cinza e mede a proporção de pixels cuja intensidade mudou. Duas regras configuráveis criam eventos demonstrativos:
 
-- movimento médio abaixo de `VIDEO_LOW_MOTION_THRESHOLD`;
-- pico de mudança acima de `VIDEO_ABRUPT_MOTION_THRESHOLD`.
+- movimento médio menor ou igual a `VIDEO_LOW_MOTION_THRESHOLD`.
+- pico de mudança maior ou igual a `VIDEO_ABRUPT_MOTION_THRESHOLD`.
 
 Esses indicadores não representam postura, dor, queda, condição clínica nem identidade. São métricas visuais genéricas para comprovar o pipeline de software com dados sintéticos. MediaPipe/YOLO podem ser adicionados posteriormente como analisadores opcionais, mantendo o mesmo contrato de eventos.
 
@@ -246,8 +259,20 @@ Para executar localmente com Python 3.11+:
 
 ```bash
 python -m venv .venv
-python -m pip install -e ".[dev]"
-pytest
+```
+
+No PowerShell:
+
+```powershell
+.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.venv\Scripts\python.exe -m pytest
+```
+
+No Linux ou macOS:
+
+```bash
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/python -m pytest
 ```
 
 Os testes usam SQLite temporário para permanecerem rápidos e isolados; a execução da aplicação usa PostgreSQL por padrão no Docker Compose.
@@ -255,7 +280,7 @@ O workflow `.github/workflows/ci.yml` repete essa validação automaticamente em
 
 ## Variáveis de ambiente
 
-Consulte `.env.example`. Áudio roda localmente por padrão (`SPEECH_PROVIDER=local`, `WHISPER_MODEL_SIZE=base`, `WHISPER_DEVICE=cpu`, `WHISPER_COMPUTE_TYPE=int8`, `WHISPER_MODEL_DIR` opcional). Para usar Azure, defina `SPEECH_PROVIDER=azure` e configure localmente `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION`. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
+Consulte [.env.example](.env.example). O provedor padrão é `SPEECH_PROVIDER=local`, com `WHISPER_MODEL_SIZE=base`, `WHISPER_DEVICE=cpu` e `WHISPER_COMPUTE_TYPE=int8`. Na execução direta, `WHISPER_MODEL_DIR` é opcional. O Compose encaminha o provedor e o tamanho do modelo e fixa o diretório de cache em `/app/models`. Para usar Azure, defina `SPEECH_PROVIDER=azure` e configure localmente `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION`. Nunca envie chaves, gravações pessoais ou dados médicos reais ao Git.
 
 ## Correspondência com o Tech Challenge
 
@@ -267,7 +292,7 @@ Consulte `.env.example`. Áudio roda localmente por padrão (`SPEECH_PROVIDER=lo
 | Prescrições e movimentação | Detectores demonstrativos de sequência e continuidade implementados com dados fictícios |
 | Alertas automáticos | Eventos e alertas persistidos nos fluxos de sinais vitais, vídeo, prescrições e movimentações |
 | Fusão multimodal | Correlação temporal preliminar implementada; evolução e validação continuam nas próximas etapas |
-| Relatório e vídeo final | Planejados para a Etapa 8 |
+| Relatório técnico | [Fluxo, modelos e resultados da Fase 4](docs/RELATORIO_TECNICO.md) |
 
 ## Próximas etapas
 
