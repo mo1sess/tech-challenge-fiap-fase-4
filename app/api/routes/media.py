@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.db.models import (JobStatus, MediaFile, MediaKind, Patient,
                            ProcessingJob)
-from app.modules.audio.azure_speech import AudioTranscriptionError
+from app.modules.audio.transcription import AudioTranscriptionError
 from app.modules.audio.processor import \
     describe_pipeline as describe_audio_pipeline
 from app.modules.video.processor import DISCLAIMER as VIDEO_DISCLAIMER
@@ -93,7 +93,11 @@ async def upload_media(
     destination.write_bytes(content)
     media.storage_path = str(destination)
 
-    pipeline = describe_audio_pipeline(destination) if resolved_kind == "audio" else describe_video_pipeline(destination)
+    pipeline = (
+        describe_audio_pipeline(destination, settings)
+        if resolved_kind == "audio"
+        else describe_video_pipeline(destination)
+    )
     job = ProcessingJob(
         patient_id=patient.id,
         media_file_id=media.id,
